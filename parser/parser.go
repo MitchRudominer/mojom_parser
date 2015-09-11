@@ -225,12 +225,6 @@ func (p *Parser) match(expectedKind lexer.TokenKind) (success bool,
 	return
 }
 
-type MojomAttributes struct{}
-type MojomInterface struct {
-	name       string
-	attributes MojomAttributes
-}
-
 func (p *Parser) readName() (name string) {
 	if p.Error() {
 		return
@@ -249,16 +243,20 @@ func (p *Parser) readName() (name string) {
 }
 
 func (p *Parser) recordInterfaceName(name string,
-	attributes MojomAttributes) (mojomInterface MojomInterface) {
+	attributes MojomAttributes) (mojomInterface *MojomInterface) {
 	if p.Error() {
 		return
 	}
-	mojomInterface = MojomInterface{name: name, attributes: attributes}
+	declarationData := new(DeclarationData)
+	declarationData.name = name
+	declarationData.attributes = attributes
+	mojomInterface = new(MojomInterface)
+	mojomInterface.declarationData = declarationData
 	// TODO(record this in the symbol table)
 	return
 }
 
-func (p *Parser) parseInterfaceBody(mojomInterface MojomInterface) {
+func (p *Parser) parseInterfaceBody(mojomInterface *MojomInterface) {
 	if p.Error() {
 		return
 	}
