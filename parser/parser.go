@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"github.com/rudominer/mojom_parser/lexer"
+	"github.com/rudominer/mojom_parser/mojom"
 	"strings"
 )
 
@@ -113,6 +114,18 @@ type Parser struct {
 	// may be nil because the parse tree is only explicitly constructed for
 	// debugging purposes.
 	currentNode *ParseNode
+
+	mojomDescriptor *mojom.MojomDescriptor
+
+	mojomFile *mojom.MojomFile
+}
+
+func NewParser(moduleName string, inputStream lexer.TokenStream,
+	descriptorToPopulate *mojom.MojomDescriptor) {
+	parser := Parser{inputStream: inputStream, mojomDescriptor: descriptorToPopulate}
+	parser.mojomFile = new(mojom.MojomFile)
+	parser.mojomFile.Descriptor = parser.mojomDescriptor
+	parser.mojomFile.ModuleName = moduleName
 }
 
 func ParserForDebugging(inputStream lexer.TokenStream) Parser {
@@ -123,7 +136,7 @@ func ParserForDebugging(inputStream lexer.TokenStream) Parser {
 }
 
 func (p *Parser) Parse() {
-	p.parseInterfaceDecl(MojomAttributes{})
+	p.parseInterfaceDecl(mojom.MojomAttributes{})
 
 	// Check if there are any extraneous tokens left in the stream.
 	if p.OK() {
@@ -134,6 +147,10 @@ func (p *Parser) Parse() {
 			p.err = parserError{E_EXTRANEOUS_TOKEN, message}
 		}
 	}
+}
+
+func (p *Parser) GetMojomFile() *mojom.MojomFile {
+	return p.mojomFile
 }
 
 func (p *Parser) GetParseTree() *ParseNode {
@@ -243,20 +260,20 @@ func (p *Parser) readName() (name string) {
 }
 
 func (p *Parser) recordInterfaceName(name string,
-	attributes MojomAttributes) (mojomInterface *MojomInterface) {
+	attributes mojom.MojomAttributes) (mojomInterface *mojom.MojomInterface) {
 	if p.Error() {
 		return
 	}
-	declarationData := new(DeclarationData)
-	declarationData.name = name
-	declarationData.attributes = attributes
-	mojomInterface = new(MojomInterface)
-	mojomInterface.declarationData = declarationData
+	declarationData := new(mojom.DeclarationData)
+	declarationData.Name = name
+	declarationData.Attributes = attributes
+	mojomInterface = new(mojom.MojomInterface)
+	mojomInterface.SetDeclarationData(declarationData)
 	// TODO(record this in the symbol table)
 	return
 }
 
-func (p *Parser) parseInterfaceBody(mojomInterface *MojomInterface) {
+func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) {
 	if p.Error() {
 		return
 	}
@@ -264,7 +281,7 @@ func (p *Parser) parseInterfaceBody(mojomInterface *MojomInterface) {
 	defer p.popNode()
 }
 
-func (p *Parser) parseInterfaceDecl(interfaceAttributes MojomAttributes) {
+func (p *Parser) parseInterfaceDecl(interfaceAttributes mojom.MojomAttributes) {
 	if p.Error() {
 		return
 	}

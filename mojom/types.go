@@ -1,6 +1,7 @@
-package parser
+package mojom
 
-// Type Kinds
+// The different kinds of Mojom types. We divide the types into five categories:
+// simple, string, compound, handle, and user-defined.
 type TypeKind int
 
 const (
@@ -13,7 +14,8 @@ const (
 )
 
 /////////////////////////////////////////////////////////////
-// The Type interface. All of our Type types implement this.
+// The Type interface. All of our structs that represent types
+// implement this interface.
 /////////////////////////////////////////////////////////////
 type Type interface {
 	Kind() TypeKind
@@ -205,6 +207,10 @@ type TypeReference struct {
 
 	// The identifier as it appears at the reference site.
 	identifier string
+
+	// If this type reference was used as a constant value then resolvedTye
+	// must eventually be an enum type
+	usedAsConstantValue bool
 
 	resolvedType UserDefinedType
 }
