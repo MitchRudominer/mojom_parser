@@ -27,7 +27,7 @@ func (l *lexer) CurText() string {
 	return l.source[l.start:l.offset]
 }
 
-func (l *lexer) sendToken(tokenType TokenKind) {
+func (l *lexer) emitToken(tokenType TokenKind) {
 	l.tokens <- Token{
 		Kind:    tokenType,
 		Text:    l.source[l.start:l.offset],
@@ -137,7 +137,7 @@ func lexSingleCharTokens(l *lexer) stateFn {
 	c := l.Peek()
 	l.Consume()
 	t, _ := singleCharTokens[c]
-	l.sendToken(t)
+	l.emitToken(t)
 
 	return lexRoot
 }
@@ -152,9 +152,9 @@ func lexEqualsOrResponse(l *lexer) stateFn {
 
 	if l.Peek() == '>' {
 		l.Consume()
-		l.sendToken(RESPONSE)
+		l.emitToken(RESPONSE)
 	} else {
-		l.sendToken(EQUALS)
+		l.emitToken(EQUALS)
 	}
 
 	return lexRoot
@@ -204,9 +204,9 @@ func lexIdentifier(l *lexer) stateFn {
 	}
 
 	if token, found := keywordTokens[l.CurText()]; found {
-		l.sendToken(token)
+		l.emitToken(token)
 	} else {
-		l.sendToken(IDENTIFIER)
+		l.emitToken(IDENTIFIER)
 	}
 
 	return lexRoot
@@ -224,7 +224,7 @@ func lexOrdinal(l *lexer) stateFn {
 		l.Consume()
 	}
 
-	l.sendToken(ORDINAL)
+	l.emitToken(ORDINAL)
 
 	return lexRoot
 }
@@ -250,7 +250,7 @@ func lexDec(l *lexer) stateFn {
 		return lexDecimalPart
 	}
 
-	l.sendToken(INT_CONST_DEC)
+	l.emitToken(INT_CONST_DEC)
 
 	return lexRoot
 }
@@ -267,7 +267,7 @@ func lexNumberStartWithZero(l *lexer) stateFn {
 	}
 
 	// Found a naked 0
-	l.sendToken(INT_CONST_DEC)
+	l.emitToken(INT_CONST_DEC)
 
 	return lexRoot
 }
@@ -280,7 +280,7 @@ func lexHexNumber(l *lexer) stateFn {
 		l.Consume()
 	}
 
-	l.sendToken(INT_CONST_HEX)
+	l.emitToken(INT_CONST_HEX)
 
 	return lexRoot
 }
@@ -301,7 +301,7 @@ func lexDecimalPart(l *lexer) stateFn {
 		l.Consume()
 	}
 
-	l.sendToken(FLOAT_CONST)
+	l.emitToken(FLOAT_CONST)
 
 	return lexRoot
 }
@@ -326,7 +326,7 @@ func lexString(l *lexer) stateFn {
 	// Consume the closing quotes
 	l.Consume()
 
-	l.sendToken(STRING_LITERAL)
+	l.emitToken(STRING_LITERAL)
 
 	return lexRoot
 }
