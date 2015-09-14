@@ -102,7 +102,7 @@ func TestSkipSkippable(t *testing.T) {
 	checkEq(t, DOT, tokens[0].Kind)
 }
 
-func TestTokenChan(t *testing.T) {
+func TestTokenize(t *testing.T) {
 	ts := Tokenize("   \t .   ")
 	token := ts.PeekNext()
 	checkEq(t, DOT, token.Kind)
