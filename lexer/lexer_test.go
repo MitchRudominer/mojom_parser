@@ -56,6 +56,8 @@ func TestAllSingleTokens(t *testing.T) {
 		{"0e5", FLOAT_CONST},
 		{"10e+5", FLOAT_CONST},
 		{"10e-5", FLOAT_CONST},
+		{"\"hello world\"", STRING_LITERAL},
+		{"\"hello \\\"real\\\" world\"", STRING_LITERAL},
 	}
 
 	for i := range testData {

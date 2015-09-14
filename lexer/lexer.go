@@ -249,6 +249,8 @@ func lexRoot(l *lexer) stateFn {
 		return lexOrdinal
 	case isNumberStart(c):
 		return lexNumber
+	case isStringStart(c):
+		return lexString
 	}
 
 	return lexSkip
@@ -452,6 +454,31 @@ func lexDecimalPart(l *lexer) stateFn {
 	}
 
 	l.sendToken(FLOAT_CONST)
+
+	return lexRoot
+}
+
+func isStringStart(c rune) bool {
+	return '"' == c
+}
+
+func lexString(l *lexer) stateFn {
+	// Consume opening quotes.
+	l.Consume()
+
+	for l.Peek() != '"' {
+		if l.Peek() == '\\' {
+			// If we see an escape character consume whatever follows blindly.
+			// TODO(azani): Consider parsing escape sequences.
+			l.Consume()
+		}
+		l.Consume()
+	}
+
+	// Consume the closing quotes
+	l.Consume()
+
+	l.sendToken(STRING_LITERAL)
 
 	return lexRoot
 }
