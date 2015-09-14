@@ -44,6 +44,18 @@ func TestAllSingleTokens(t *testing.T) {
 		{"false", FALSE},
 		{"default", DEFAULT},
 		{"@10", ORDINAL},
+		{"10", INT_CONST_DEC},
+		{"0", INT_CONST_DEC},
+		{"0xA10", INT_CONST_HEX},
+		{"0xa10", INT_CONST_HEX},
+		{"0XA10", INT_CONST_HEX},
+		{"0Xa10", INT_CONST_HEX},
+		{"10.5", FLOAT_CONST},
+		{"10e5", FLOAT_CONST},
+		{"0.5", FLOAT_CONST},
+		{"0e5", FLOAT_CONST},
+		{"10e+5", FLOAT_CONST},
+		{"10e-5", FLOAT_CONST},
 	}
 
 	for i := range testData {

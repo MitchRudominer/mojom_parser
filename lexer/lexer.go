@@ -247,6 +247,8 @@ func lexRoot(l *lexer) stateFn {
 		return lexIdentifier
 	case isOrdinal(c):
 		return lexOrdinal
+	case isNumberStart(c):
+		return lexNumber
 	}
 
 	return lexSkip
@@ -318,6 +320,10 @@ func isDigit(c rune) bool {
 	return ('0' <= c && c <= '9')
 }
 
+func isHexDigit(c rune) bool {
+	return isDigit(c) || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
+}
+
 func isIdentifier(c rune) bool {
 	return isAlpha(c) || c == '_'
 }
@@ -369,6 +375,83 @@ func lexOrdinal(l *lexer) stateFn {
 	}
 
 	l.sendToken(ORDINAL)
+
+	return lexRoot
+}
+
+func isNumberStart(c rune) bool {
+	return isDigit(c)
+}
+
+func lexNumber(l *lexer) stateFn {
+	switch c := l.Peek(); c {
+	case '0':
+		return lexNumberStartWithZero
+	}
+	return lexDec
+}
+
+func lexDec(l *lexer) stateFn {
+	for isDigit(l.Peek()) {
+		l.Consume()
+	}
+
+	if isDecimalPartStart(l.Peek()) {
+		return lexDecimalPart
+	}
+
+	l.sendToken(INT_CONST_DEC)
+
+	return lexRoot
+}
+
+func lexNumberStartWithZero(l *lexer) stateFn {
+	// Consume the starting 0
+	l.Consume()
+
+	switch c := l.Peek(); {
+	case c == 'x' || c == 'X':
+		return lexHexNumber
+	case isDecimalPartStart(c):
+		return lexDecimalPart
+	}
+
+	// Found a naked 0
+	l.sendToken(INT_CONST_DEC)
+
+	return lexRoot
+}
+
+func lexHexNumber(l *lexer) stateFn {
+	// Consume the x or X
+	l.Consume()
+
+	for isHexDigit(l.Peek()) {
+		l.Consume()
+	}
+
+	l.sendToken(INT_CONST_HEX)
+
+	return lexRoot
+}
+
+func isDecimalPartStart(c rune) bool {
+	return c == '.' || c == 'e' || c == 'E'
+}
+
+func lexDecimalPart(l *lexer) stateFn {
+	// Consume '.' or 'e' or 'E'
+	l.Consume()
+
+	if c := l.Peek(); c == '+' || c == '-' {
+		l.Consume()
+	}
+
+	for isDigit(l.Peek()) {
+		l.Consume()
+	}
+
+	l.sendToken(FLOAT_CONST)
 
 	return lexRoot
 }
