@@ -265,13 +265,22 @@ func lexRoot(l *lexer) stateFn {
 		return lexNumber
 	case isStringStart(c):
 		return lexString
+	case isSkippable(c):
+		return lexSkip
 	}
 
-	return lexSkip
+	// TODO(azani): Something has gone wrong.
+	return nil
+}
+
+func isSkippable(c rune) bool {
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
 }
 
 func lexSkip(l *lexer) stateFn {
-	l.Consume()
+	for isSkippable(l.Peek()) {
+		l.Consume()
+	}
 	l.startToken()
 	return lexRoot
 }
