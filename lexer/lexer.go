@@ -245,6 +245,8 @@ func lexRoot(l *lexer) stateFn {
 		return lexEqualsOrResponse
 	case isIdentifier(c):
 		return lexIdentifier
+	case isOrdinal(c):
+		return lexOrdinal
 	}
 
 	return lexSkip
@@ -350,6 +352,23 @@ func lexIdentifier(l *lexer) stateFn {
 	} else {
 		l.sendToken(IDENTIFIER)
 	}
+
+	return lexRoot
+}
+
+func isOrdinal(c rune) bool {
+	return '@' == c
+}
+
+// Ordinals start with '@' and then some digits.
+func lexOrdinal(l *lexer) stateFn {
+	l.Consume()
+
+	for isDigit(l.Peek()) {
+		l.Consume()
+	}
+
+	l.sendToken(ORDINAL)
 
 	return lexRoot
 }

@@ -43,6 +43,7 @@ func TestAllSingleTokens(t *testing.T) {
 		{"true", TRUE},
 		{"false", FALSE},
 		{"default", DEFAULT},
+		{"@10", ORDINAL},
 	}
 
 	for i := range testData {
