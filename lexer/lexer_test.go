@@ -33,6 +33,16 @@ func TestAllSingleTokens(t *testing.T) {
 		{"=", EQUALS},
 		{"=>", RESPONSE},
 		{"somet_hi3ng", IDENTIFIER},
+		{"import", IMPORT},
+		{"module", MODULE},
+		{"struct", STRUCT},
+		{"union", UNION},
+		{"interface", INTERFACE},
+		{"enum", ENUM},
+		{"const", CONST},
+		{"true", TRUE},
+		{"false", FALSE},
+		{"default", DEFAULT},
 	}
 
 	for i := range testData {

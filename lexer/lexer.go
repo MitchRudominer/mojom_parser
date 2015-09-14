@@ -126,6 +126,10 @@ type lexer struct {
 	tokens     chan Token
 }
 
+func (l *lexer) CurText() string {
+	return l.source[l.start:l.offset]
+}
+
 func (l *lexer) sendToken(tokenType TokenKind) {
 	l.tokens <- Token{
 		Kind:    tokenType,
@@ -246,6 +250,19 @@ func isIdentifier(c rune) bool {
 	return isAlpha(c) || c == '_'
 }
 
+var keywordTokens = map[string]TokenKind{
+	"import":    IMPORT,
+	"module":    MODULE,
+	"struct":    STRUCT,
+	"union":     UNION,
+	"interface": INTERFACE,
+	"enum":      ENUM,
+	"const":     CONST,
+	"true":      TRUE,
+	"false":     FALSE,
+	"default":   DEFAULT,
+}
+
 // valid C identifiers (K&R2: A.2.3)
 func lexIdentifier(l *lexer) stateFn {
 	l.Consume()
@@ -258,7 +275,11 @@ func lexIdentifier(l *lexer) stateFn {
 		l.Consume()
 	}
 
-	l.sendToken(IDENTIFIER)
+	if token, found := keywordTokens[l.CurText()]; found {
+		l.sendToken(token)
+	} else {
+		l.sendToken(IDENTIFIER)
+	}
 
 	return lexRoot
 }
