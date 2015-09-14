@@ -2,6 +2,12 @@ package lexer
 
 import "testing"
 
+func checkEq(t *testing.T, expected, actual interface{}) {
+	if expected != actual {
+		t.Fatalf("Failed check: Expected (%v), Actual (%v)", expected, actual)
+	}
+}
+
 func pumpTokens(tokensChan chan Token) []Token {
 	tokens := []Token{}
 	for token := range tokensChan {
@@ -70,16 +76,8 @@ func TestAllSingleTokens(t *testing.T) {
 				testData[i].source, len(tokens), tokens)
 		}
 
-		if tokens[0].Text != testData[i].source {
-			t.Fatalf("Expected: '%v', Actual: '%v'",
-				testData[i].source, tokens[0].Text)
-		}
-	}
-}
-
-func checkEq(t *testing.T, expected, actual interface{}) {
-	if expected != actual {
-		t.Fatalf("Failed check: Expected (%v), Actual (%v)", expected, actual)
+		checkEq(t, testData[i].source, tokens[0].Text)
+		checkEq(t, testData[i].token, tokens[0].Kind)
 	}
 }
 
