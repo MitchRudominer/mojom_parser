@@ -167,6 +167,38 @@ type TokenStream interface {
 	ConsumeNext() bool
 }
 
+type TokenChan struct {
+	tokenChan chan Token
+	nextToken Token
+	buffered  bool
+}
+
+func (s *TokenChan) PeekNext() (token Token) {
+	if !s.buffered {
+		s.buffered = true
+		s.ConsumeNext()
+	}
+
+	return s.nextToken
+}
+
+func (s *TokenChan) ConsumeNext() bool {
+	if t, open := <-s.tokenChan; open {
+		s.nextToken = t
+		return true
+	} else {
+		s.nextToken = EOFToken()
+		return false
+	}
+}
+
+func Tokenize(source string) TokenStream {
+	tokens := make(chan Token)
+	l := lexer{source: source, tokens: tokens}
+	go l.run()
+	return &TokenChan{tokenChan: tokens}
+}
+
 // *TokenSlice Implements TokenStream
 type TokenSlice []Token
 
