@@ -241,11 +241,11 @@ func lexRoot(l *lexer) stateFn {
 	switch c := l.Peek(); {
 	case isSingleCharTokens(c):
 		return lexSingleCharTokens
-	case isEqualsOrResponse(c):
+	case isEqualsOrResponseStart(c):
 		return lexEqualsOrResponse
-	case isIdentifier(c):
+	case isIdentifierStart(c):
 		return lexIdentifier
-	case isOrdinal(c):
+	case isOrdinalStart(c):
 		return lexOrdinal
 	case isNumberStart(c):
 		return lexNumber
@@ -292,7 +292,7 @@ func lexSingleCharTokens(l *lexer) stateFn {
 	return lexRoot
 }
 
-func isEqualsOrResponse(c rune) bool {
+func isEqualsOrResponseStart(c rune) bool {
 	return c == '='
 }
 
@@ -324,7 +324,7 @@ func isHexDigit(c rune) bool {
 	return isDigit(c) || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
 
-func isIdentifier(c rune) bool {
+func isIdentifierStart(c rune) bool {
 	return isAlpha(c) || c == '_'
 }
 
@@ -362,7 +362,7 @@ func lexIdentifier(l *lexer) stateFn {
 	return lexRoot
 }
 
-func isOrdinal(c rune) bool {
+func isOrdinalStart(c rune) bool {
 	return '@' == c
 }
 
