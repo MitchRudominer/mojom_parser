@@ -76,3 +76,21 @@ func TestAllSingleTokens(t *testing.T) {
 		}
 	}
 }
+
+func checkEq(t *testing.T, expected, actual interface{}) {
+	if expected != actual {
+		t.Fatalf("Failed check: Expected (%v), Actual (%v)", expected, actual)
+	}
+}
+
+func TestTokenPosition(t *testing.T) {
+	source := "  \n  ."
+	l := lexer{source: source, tokens: make(chan Token)}
+	go l.run()
+	tokens := pumpTokens(l.tokens)
+	token := tokens[0]
+
+	checkEq(t, 5, token.CharPos)
+	checkEq(t, 2, token.LineNo)
+	checkEq(t, 2, token.LinePos)
+}

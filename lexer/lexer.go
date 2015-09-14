@@ -188,12 +188,14 @@ func (slice *TokenSlice) ConsumeNext() bool {
 }
 
 type lexer struct {
-	source     string
-	offset     int
-	start      int
-	lineNo     int
-	lineOffset int
-	tokens     chan Token
+	source          string
+	offset          int
+	lineNo          int
+	lineOffset      int
+	start           int
+	lineStart       int
+	lineOffsetStart int
+	tokens          chan Token
 }
 
 func (l *lexer) CurText() string {
@@ -205,13 +207,25 @@ func (l *lexer) sendToken(tokenType TokenKind) {
 		Kind:    tokenType,
 		Text:    l.source[l.start:l.offset],
 		CharPos: l.start,
-		LineNo:  l.lineNo,
-		LinePos: l.lineOffset}
+		LineNo:  l.lineStart + 1,
+		LinePos: l.lineOffsetStart}
+	l.startToken()
+}
+
+func (l *lexer) startToken() {
 	l.start = l.offset
+	l.lineStart = l.lineNo
+	l.lineOffsetStart = l.lineOffset
 }
 
 func (l *lexer) Consume() {
-	_, width := utf8.DecodeRuneInString(l.source[l.offset:])
+	c, width := utf8.DecodeRuneInString(l.source[l.offset:])
+	if c == '\n' {
+		l.lineNo += 1
+		l.lineOffset = 0
+	} else {
+		l.lineOffset += width
+	}
 	l.offset += width
 }
 
@@ -258,7 +272,7 @@ func lexRoot(l *lexer) stateFn {
 
 func lexSkip(l *lexer) stateFn {
 	l.Consume()
-	l.start = l.offset
+	l.startToken()
 	return lexRoot
 }
 
