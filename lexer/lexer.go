@@ -37,6 +37,16 @@ func (l *lexer) emitToken(tokenType TokenKind) {
 	l.startToken()
 }
 
+// Assumes you stop parsing now.
+func (l *lexer) emitError() {
+	l.tokens <- Token{
+		Kind:    ERROR_UNKNOWN,
+		Text:    "", // TODO(azani): Put something there?
+		CharPos: l.offset,
+		LineNo:  l.lineNo + 1,
+		LinePos: l.lineOffset}
+}
+
 func (l *lexer) startToken() {
 	l.start = l.offset
 	l.lineStart = l.lineNo
@@ -94,7 +104,7 @@ func lexRoot(l *lexer) stateFn {
 		return lexSkip
 	}
 
-	// TODO(azani): Something has gone wrong.
+	l.emitError()
 	return nil
 }
 

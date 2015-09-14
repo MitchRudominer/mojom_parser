@@ -111,3 +111,9 @@ func TestTokenize(t *testing.T) {
 	token = ts.PeekNext()
 	checkEq(t, EOF, token.Kind)
 }
+
+func TestBadToken(t *testing.T) {
+	ts := Tokenize("   \t $   ")
+	token := ts.PeekNext()
+	checkEq(t, ERROR_UNKNOWN, token.Kind)
+}
