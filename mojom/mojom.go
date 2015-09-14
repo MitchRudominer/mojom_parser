@@ -1,5 +1,9 @@
 package mojom
 
+import (
+	"fmt"
+)
+
 type MojomDescriptor struct {
 	typesByKey       map[string]UserDefinedType
 	typeKeysByFQName map[string]string
@@ -26,11 +30,36 @@ func NewMojomDescriptor() *MojomDescriptor {
 	descriptor.constantsByKey = make(map[string]UserDefinedType)
 	descriptor.constantKeysByFQName = make(map[string]string)
 
-	descriptor.MojomFiles = make([]*MojomFile, 1)
+	descriptor.MojomFiles = make([]*MojomFile, 0)
 
-	descriptor.unresolvedTypeReferences = make([]*TypeReference, 1)
-	descriptor.unresolvedConstantReferences = make([]*ConstantOccurrence, 1)
+	descriptor.unresolvedTypeReferences = make([]*TypeReference, 0)
+	descriptor.unresolvedConstantReferences = make([]*ConstantOccurrence, 0)
 	return descriptor
+}
+
+func SprintMapValueNames(m map[string]UserDefinedType) (s string) {
+	for key, value := range m {
+		s += fmt.Sprintf("%s : %s\n", key, value.GetFullyQualifiedName())
+	}
+	return
+}
+
+func (d *MojomDescriptor) SprintMojomFileNames() (s string) {
+	for _, f := range d.MojomFiles {
+		if f == nil {
+			s += "nil "
+		} else {
+			s += f.FileName
+		}
+	}
+	return
+}
+
+func (d *MojomDescriptor) String() string {
+	s := fmt.Sprintf("typesByKey:\n %s", SprintMapValueNames(d.typesByKey))
+	s += fmt.Sprintf("typeKeysByFQName:\n %v", d.typeKeysByFQName)
+	s += fmt.Sprintf("\nMojomFiles:\n %s\n", d.SprintMojomFileNames())
+	return s
 }
 
 func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
@@ -126,13 +155,22 @@ func NewMojomFile(fileName string) *MojomFile {
 	mojomFile := new(MojomFile)
 	mojomFile.FileName = fileName
 	mojomFile.ModuleNamespace = ""
-	mojomFile.Imports = make([]MojomFileReference, 1)
-	mojomFile.Interfaces = make([]*MojomInterface, 1)
-	mojomFile.Structs = make([]*MojomStruct, 1)
-	mojomFile.Unions = make([]*MojomUnion, 1)
-	mojomFile.Enums = make([]*MojomEnum, 1)
-	mojomFile.Constants = make([]*UserDefinedConstant, 1)
+	mojomFile.Imports = make([]MojomFileReference, 0)
+	mojomFile.Interfaces = make([]*MojomInterface, 0)
+	mojomFile.Structs = make([]*MojomStruct, 0)
+	mojomFile.Unions = make([]*MojomUnion, 0)
+	mojomFile.Enums = make([]*MojomEnum, 0)
+	mojomFile.Constants = make([]*UserDefinedConstant, 0)
 	return mojomFile
+}
+
+func (m *MojomFile) String() string {
+	s := fmt.Sprintf("file name: %s\n", m.FileName)
+	s += fmt.Sprintf("module: %s\n", m.ModuleNamespace)
+	s += fmt.Sprintf("attributes: %s\n", m.Attributes)
+	s += fmt.Sprintf("imports: %s\n", m.Imports)
+	s += fmt.Sprintf("interfaces: %s\n", m.Interfaces)
+	return s
 }
 
 func (m *MojomFile) AddImport(fileName string) {
@@ -190,6 +228,12 @@ type UserDefinedTypeBase struct {
 	typeKey            string
 }
 
+func (b UserDefinedTypeBase) String() string {
+	s := fmt.Sprintf("fully qualified name: %s\n", b.fullyQualifiedName)
+	s += fmt.Sprintf("type key: %s\n", b.typeKey)
+	return s
+}
+
 func (b UserDefinedTypeBase) GetFullyQualifiedName() string {
 	return b.fullyQualifiedName
 }
@@ -200,7 +244,7 @@ func computeTypeKey(fullyQualifiedName string) (typeKey string) {
 	return fullyQualifiedName
 }
 
-func (b UserDefinedTypeBase) Init(fullyQualifiedName string, d *DeclarationData) {
+func (b *UserDefinedTypeBase) Init(fullyQualifiedName string, d *DeclarationData) {
 	b.fullyQualifiedName = fullyQualifiedName
 	b.typeKey = computeTypeKey(fullyQualifiedName)
 	b.declarationData = d
@@ -251,6 +295,15 @@ type MojomInterface struct {
 	methodsByOrdinal map[int]*MojomMethod
 
 	methodsByName map[string]*MojomMethod
+}
+
+func (m *MojomInterface) String() string {
+	if m == nil {
+		return "nil"
+	}
+	s := fmt.Sprintf("\n---------interface--------------\n")
+	s += fmt.Sprintf("%s", m.UserDefinedTypeBase)
+	return s
 }
 
 type MojomMethod struct {
@@ -354,9 +407,16 @@ type Attributes struct {
 	List []MojomAttribute
 }
 
+func (a *Attributes) String() string {
+	if a == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("%s", a.List)
+}
+
 func NewAttributes() *Attributes {
 	attributes := new(Attributes)
-	attributes.List = make([]MojomAttribute, 1)
+	attributes.List = make([]MojomAttribute, 0)
 	return attributes
 }
 
