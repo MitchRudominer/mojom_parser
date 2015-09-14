@@ -94,3 +94,12 @@ func TestTokenPosition(t *testing.T) {
 	checkEq(t, 2, token.LineNo)
 	checkEq(t, 2, token.LinePos)
 }
+
+func TestSkipSkippable(t *testing.T) {
+	source := "  \t  \r \n  ."
+	l := lexer{source: source, tokens: make(chan Token)}
+	go l.run()
+	tokens := pumpTokens(l.tokens)
+
+	checkEq(t, DOT, tokens[0].Kind)
+}
