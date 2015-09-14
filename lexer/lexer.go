@@ -152,71 +152,11 @@ func (token Token) String() string {
 	}
 }
 
-func EOFToken() Token {
-	eof := Token{Kind: EOF}
-	return eof
-}
-
-type TokenStream interface {
-	// Returns the next Token in the stream without advancing the cursor,
-	// or returns the EOF token if the cursor is already past the end.
-	PeekNext() Token
-
-	// Advances the cursor in the stream and returns true, or else returns
-	// false if the cursor is already past the end of the stream.
-	ConsumeNext() bool
-}
-
-type TokenChan struct {
-	tokenChan chan Token
-	nextToken Token
-	buffered  bool
-}
-
-func (s *TokenChan) PeekNext() (token Token) {
-	if !s.buffered {
-		s.buffered = true
-		s.ConsumeNext()
-	}
-
-	return s.nextToken
-}
-
-func (s *TokenChan) ConsumeNext() bool {
-	if t, open := <-s.tokenChan; open {
-		s.nextToken = t
-		return true
-	} else {
-		s.nextToken = EOFToken()
-		return false
-	}
-}
-
 func Tokenize(source string) TokenStream {
 	tokens := make(chan Token)
 	l := lexer{source: source, tokens: tokens}
 	go l.run()
 	return &TokenChan{tokenChan: tokens}
-}
-
-// *TokenSlice Implements TokenStream
-type TokenSlice []Token
-
-func (slice *TokenSlice) PeekNext() (token Token) {
-	if len(*(slice)) == 0 {
-		token = EOFToken()
-		return
-	}
-	token = (*slice)[0]
-	return
-}
-
-func (slice *TokenSlice) ConsumeNext() bool {
-	if len(*(slice)) == 0 {
-		return false
-	}
-	(*slice) = (*slice)[1:]
-	return true
 }
 
 type lexer struct {
