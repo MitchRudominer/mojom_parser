@@ -36,7 +36,7 @@ func buildTestInputStream() lexer.TokenSlice {
 		[]interface{}{
 			lexer.LBRACKET,
 			P{lexer.IDENTIFIER, "color"},
-			lexer.EQUALS,
+			//lexer.EQUALS,
 			P{lexer.IDENTIFIER, "red"},
 			lexer.COMMA,
 			P{lexer.IDENTIFIER, "size"},
@@ -50,7 +50,7 @@ func buildTestInputStream() lexer.TokenSlice {
 			P{lexer.STRING_LITERAL, "a.b.c"},
 			lexer.SEMI,
 			lexer.IMPORT,
-			P{lexer.STRING_LITERAL, "e.e.f"},
+			P{lexer.STRING_LITERAL, "d.e.f"},
 			lexer.SEMI,
 			lexer.INTERFACE,
 			P{lexer.IDENTIFIER, "baz"},
@@ -70,4 +70,8 @@ func TestParseSuccess(t *testing.T) {
 	fmt.Printf("Is OK: %v\n", parser.OK())
 	fmt.Printf("Error message: %s\n", parser.ErrorMessage())
 	fmt.Printf("Parse tree: %s\n", parser.GetParseTree())
+	fmt.Printf("MojomFile:\n================\n%s",
+		parser.GetMojomFile())
+	fmt.Printf("MojomDescriptor:\n================\n%s",
+		parser.GetMojomDescriptor())
 }
