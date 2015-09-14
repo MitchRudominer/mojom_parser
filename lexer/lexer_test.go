@@ -54,5 +54,10 @@ func TestAllSingleTokens(t *testing.T) {
 			t.Fatalf("Source('%v'): Expected 1 token but got %v instead: %v",
 				testData[i].source, len(tokens), tokens)
 		}
+
+		if tokens[0].Text != testData[i].source {
+			t.Fatalf("Expected: '%v', Actual: '%v'",
+				testData[i].source, tokens[0].Text)
+		}
 	}
 }
