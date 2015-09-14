@@ -6,25 +6,58 @@ import (
 	"testing"
 )
 
-// Builds a Token with the given data.
-func token(text string, lineNumber, colNumber int,
-	kind lexer.TokenKind) lexer.Token {
-	return lexer.Token{Text: text, Kind: kind, LineNo: lineNumber, LinePos: colNumber}
+type P struct {
+	kind lexer.TokenKind
+	text string
+}
+
+func buildStream(tokens []interface{}) lexer.TokenSlice {
+	slice := make(lexer.TokenSlice, len(tokens))
+	for i, x := range tokens {
+		text := ""
+		var kind lexer.TokenKind
+		if k, ok := x.(lexer.TokenKind); ok {
+			kind = k
+		} else {
+			p := x.(P)
+			text = p.text
+			kind = p.kind
+		}
+		slice[i] = lexer.Token{Text: text, Kind: kind, LineNo: i, LinePos: i}
+	}
+	return slice
 }
 
 // For testing the parser without the lexer, we want to be able to build
 // streams of input tokens by hand. At the moment I am just manually
 // hand-crafting streams.
 func buildTestInputStream() lexer.TokenSlice {
-	return lexer.TokenSlice{
-		token("interface", 0, 0, lexer.INTERFACE),
-		token("foo", 1, 1, lexer.IDENTIFIER),
-		token("###", 5, 6, lexer.ERROR_UNKNOWN),
-		token("{", 2, 2, lexer.LBRACE),
-		token("}", 3, 3, lexer.RBRACE),
-		token(";", 4, 4, lexer.SEMI),
-		//token("###", 5, 6, lexer.ERROR_UNKNOWN),
-	}
+	return buildStream(
+		[]interface{}{
+			lexer.LBRACKET,
+			P{lexer.IDENTIFIER, "color"},
+			lexer.EQUALS,
+			P{lexer.IDENTIFIER, "red"},
+			lexer.COMMA,
+			P{lexer.IDENTIFIER, "size"},
+			lexer.EQUALS,
+			P{lexer.IDENTIFIER, "big"},
+			lexer.RBRACKET,
+			lexer.MODULE,
+			P{lexer.IDENTIFIER, "foo.bar"},
+			lexer.SEMI,
+			lexer.IMPORT,
+			P{lexer.STRING_LITERAL, "a.b.c"},
+			lexer.SEMI,
+			lexer.IMPORT,
+			P{lexer.STRING_LITERAL, "e.e.f"},
+			lexer.SEMI,
+			lexer.INTERFACE,
+			P{lexer.IDENTIFIER, "baz"},
+			lexer.LBRACE,
+			lexer.RBRACE,
+			lexer.SEMI,
+		})
 }
 
 // This is not really an automated test. I am just using this as a hook

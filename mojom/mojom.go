@@ -1,43 +1,164 @@
 package mojom
 
 type MojomDescriptor struct {
-	typesByKey     map[string]*UserDefinedType
-	constantsByKey map[string]*UserDefinedType
+	typesByKey       map[string]UserDefinedType
+	typeKeysByFQName map[string]string
 
-	interfaceByName map[string]*MojomInterface
-	structsByName   map[string]*MojomStruct
-	unionsByName    map[string]*MojomUnion
-	enumsByName     map[string]*MojomEnum
-	constantsByName map[string]*DeclaredConstant
+	constantsByKey       map[string]UserDefinedType
+	constantKeysByFQName map[string]string
 
-	mojomFiles []MojomFile
+	MojomFiles []*MojomFile
+
+	unresolvedTypeReferences     []*TypeReference
+	unresolvedConstantReferences []*ConstantOccurrence
+}
+
+func (d *MojomDescriptor) AddNewType(newType UserDefinedType) {
+	d.typesByKey[newType.GetTypeKey()] = newType
+	d.typeKeysByFQName[newType.GetFullyQualifiedName()] = newType.GetTypeKey()
+}
+
+func NewMojomDescriptor() *MojomDescriptor {
+	descriptor := new(MojomDescriptor)
+	descriptor.typesByKey = make(map[string]UserDefinedType)
+	descriptor.typeKeysByFQName = make(map[string]string)
+
+	descriptor.constantsByKey = make(map[string]UserDefinedType)
+	descriptor.constantKeysByFQName = make(map[string]string)
+
+	descriptor.MojomFiles = make([]*MojomFile, 1)
+
+	descriptor.unresolvedTypeReferences = make([]*TypeReference, 1)
+	descriptor.unresolvedConstantReferences = make([]*ConstantOccurrence, 1)
+	return descriptor
+}
+
+func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
+	mojomFile := NewMojomFile(fileName)
+	mojomFile.Descriptor = d
+	d.MojomFiles = append(d.MojomFiles, mojomFile)
+	return mojomFile
+}
+
+func (d *MojomDescriptor) Resolve() (resolved bool) {
+	typesResolved := true
+	for i, ref := range d.unresolvedTypeReferences {
+		if ref != nil {
+			if d.resolveTypeRef(ref) {
+				d.unresolvedTypeReferences[i] = nil
+			} else {
+				typesResolved = false
+			}
+		}
+	}
+	if typesResolved {
+		d.unresolvedTypeReferences = d.unresolvedTypeReferences[0:0]
+	}
+
+	constantsResolved := true
+	for i, ref := range d.unresolvedConstantReferences {
+		if ref != nil {
+			if d.resolveConstantRef(ref) {
+				d.unresolvedConstantReferences[i] = nil
+			} else {
+				constantsResolved = false
+			}
+		}
+	}
+	if constantsResolved {
+		d.unresolvedTypeReferences = d.unresolvedTypeReferences[0:0]
+	}
+	return typesResolved && constantsResolved
+}
+
+func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
+	scope := ref.Scope
+	for scope != nil {
+		if key, ok := d.typeKeysByFQName[scope.FullyQualifiedName+ref.identifier]; ok {
+			ref.resolvedType = d.typesByKey[key]
+			return true
+		}
+		scope = scope.ParentScope
+	}
+	return false
+}
+
+func (d *MojomDescriptor) resolveConstantRef(ref *ConstantOccurrence) (resolved bool) {
+	return false
+}
+
+func (d *MojomDescriptor) resolveTypeRefInScope(ref *TypeReference, scope *Scope) bool {
+	if key, ok := d.typeKeysByFQName[scope.FullyQualifiedName+ref.identifier]; ok {
+		ref.resolvedType = d.typesByKey[key]
+		return true
+	}
+	return false
 }
 
 type MojomFile struct {
 	Descriptor *MojomDescriptor
 
-	// The module name is (derived from) the file name of the corresponding
+	// The |FileName| is (derived from) the file name of the corresponding
 	// .mojom file. It is the unique identifier for this module within the
 	// MojomFileGraph
-	ModuleName string
+	FileName string
 
-	// The namespace is the identifier declared via the "module" declaration
-	// in the .mojom file.
-	moduleNamespace string
+	// The module namespace is the identifier declared via the "module"
+	// declaration in the .mojom file.
+	ModuleNamespace string
 
 	// Attributes declared in the Mojom file at the module level.
-	attributes MojomAttributes
+	Attributes *Attributes
 
 	// The list of other MojomFiles imported by this one. The elements
 	// of the array are the |module_name|s and the associated module may
 	// be retrieved from the  MojomFileGraph.
-	imports []*MojomFile
+	Imports []MojomFileReference
 
-	interfaces []*MojomInterface
-	structs    []*MojomStruct
-	unions     []*MojomUnion
-	enums      []*MojomEnum
-	constatns  []*DeclaredConstant
+	Interfaces []*MojomInterface
+	Structs    []*MojomStruct
+	Unions     []*MojomUnion
+	Enums      []*MojomEnum
+	Constants  []*UserDefinedConstant
+}
+
+func NewMojomFile(fileName string) *MojomFile {
+	mojomFile := new(MojomFile)
+	mojomFile.FileName = fileName
+	mojomFile.ModuleNamespace = ""
+	mojomFile.Imports = make([]MojomFileReference, 1)
+	mojomFile.Interfaces = make([]*MojomInterface, 1)
+	mojomFile.Structs = make([]*MojomStruct, 1)
+	mojomFile.Unions = make([]*MojomUnion, 1)
+	mojomFile.Enums = make([]*MojomEnum, 1)
+	mojomFile.Constants = make([]*UserDefinedConstant, 1)
+	return mojomFile
+}
+
+func (m *MojomFile) AddImport(fileName string) {
+	m.Imports = append(m.Imports, MojomFileReference{FileName: fileName})
+}
+
+func (m *MojomFile) AddNewType(newType UserDefinedType, simpleName string,
+	attributes *Attributes) {
+	fullyQualifiedName := m.ModuleNamespace + "." + simpleName
+	declarationData := NewDeclarationData(simpleName, attributes)
+	newType.Init(fullyQualifiedName, declarationData)
+	if m.Descriptor != nil {
+		m.Descriptor.AddNewType(newType)
+	}
+}
+
+func (m *MojomFile) AddInterface(simpleName string, attributes *Attributes) *MojomInterface {
+	mojomInterface := new(MojomInterface)
+	m.AddNewType(mojomInterface, simpleName, attributes)
+	m.Interfaces = append(m.Interfaces, mojomInterface)
+	return mojomInterface
+}
+
+type MojomFileReference struct {
+	FileName string
+	File     *MojomFile
 }
 
 // User-Defined Type Kinds
@@ -56,21 +177,32 @@ const (
 /////////////////////////////////////////////////////////////
 type UserDefinedType interface {
 	Kind() UserDefinedTypeKind
+	Init(fullyQualifiedName string, d *DeclarationData)
+	GetFullyQualifiedName() string
 	GetTypeKey() string
 	DeclarationData() *DeclarationData
 	Identical(other UserDefinedType) bool
 }
 
 type UserDefinedTypeBase struct {
-	declarationData *DeclarationData
-	typeKey         string
+	declarationData    *DeclarationData
+	fullyQualifiedName string
+	typeKey            string
 }
 
-func (b UserDefinedTypeBase) GetTypeKey() string {
-	return b.typeKey
+func (b UserDefinedTypeBase) GetFullyQualifiedName() string {
+	return b.fullyQualifiedName
 }
 
-func (b UserDefinedTypeBase) SetDeclarationData(d *DeclarationData) {
+// This method also computes and stores the type key
+func computeTypeKey(fullyQualifiedName string) (typeKey string) {
+	// TODO(rudominer) This should be the SHA1 hash of fqn instead.
+	return fullyQualifiedName
+}
+
+func (b UserDefinedTypeBase) Init(fullyQualifiedName string, d *DeclarationData) {
+	b.fullyQualifiedName = fullyQualifiedName
+	b.typeKey = computeTypeKey(fullyQualifiedName)
 	b.declarationData = d
 }
 
@@ -192,7 +324,7 @@ func (MojomEnum) Kind() UserDefinedTypeKind {
 /////////////////////////////////////////////////////////////
 
 // This represents a Mojom constant declaration.
-type DeclaredConstant struct {
+type UserDefinedConstant struct {
 	DeclarationData
 
 	// The type must be a string, bool, float, double, or integer type.
@@ -203,141 +335,33 @@ type DeclaredConstant struct {
 }
 
 /////////////////////////////////////////////////////////////
-// Constant Values
-/////////////////////////////////////////////////////////////
-
-type ConstantOccurrence struct {
-	value ConstantValue
-
-	identifier  string
-	constantKey string
-}
-
-type ConstantValue struct {
-	// The Type must be simple, string, or a type references
-	// whose resolvedType is an enum type. The accessor methods
-	// below return the appropriate type of value.
-	valueType Type
-
-	value interface{}
-}
-
-func (cv ConstantValue) isSimpleType(simpleType SimpleType) bool {
-	if cv.valueType.Kind() == SIMPLE_TYPE {
-		if cv.valueType.(SimpleType) == simpleType {
-			return true
-		}
-	}
-	return false
-}
-
-func (cv ConstantValue) GetBoolValue() (value bool, success bool) {
-	if success = cv.isSimpleType(BOOL); success {
-		value = cv.value.(bool)
-	}
-	return
-}
-
-func (cv ConstantValue) GetDoubleValue() (value float64, success bool) {
-	if success = cv.isSimpleType(DOUBLE); success {
-		value = cv.value.(float64)
-	}
-	return
-}
-
-func (cv ConstantValue) GetFloatValue() (value float32, success bool) {
-	if success = cv.isSimpleType(FLOAT); success {
-		value = cv.value.(float32)
-	}
-	return
-}
-
-func (cv ConstantValue) GetInt8Value() (value int8, success bool) {
-	if success = cv.isSimpleType(INT8); success {
-		value = cv.value.(int8)
-	}
-	return
-}
-
-func (cv ConstantValue) GetInt16Value() (value int16, success bool) {
-	if success = cv.isSimpleType(INT16); success {
-		value = cv.value.(int16)
-	}
-	return
-}
-
-func (cv ConstantValue) GetInt32Value() (value int32, success bool) {
-	if success = cv.isSimpleType(INT32); success {
-		value = cv.value.(int32)
-	}
-	return
-}
-
-func (cv ConstantValue) GetInt64Value() (value int64, success bool) {
-	if success = cv.isSimpleType(INT64); success {
-		value = cv.value.(int64)
-	}
-	return
-}
-
-func (cv ConstantValue) GetIntU8Value() (value uint8, success bool) {
-	if success = cv.isSimpleType(UINT8); success {
-		value = cv.value.(uint8)
-	}
-	return
-}
-
-func (cv ConstantValue) GetUInt16Value() (value uint16, success bool) {
-	if success = cv.isSimpleType(UINT16); success {
-		value = cv.value.(uint16)
-	}
-	return
-}
-
-func (cv ConstantValue) GetUInt32Value() (value uint32, success bool) {
-	if success = cv.isSimpleType(UINT32); success {
-		value = cv.value.(uint32)
-	}
-	return
-}
-
-func (cv ConstantValue) GetUInt64Value() (value uint64, success bool) {
-	if success = cv.isSimpleType(UINT64); success {
-		value = cv.value.(uint64)
-	}
-	return
-}
-
-func (cv ConstantValue) GetEnumValue() (value EnumConstantValue, success bool) {
-	if cv.valueType.Kind() == TYPE_REFERENCE {
-		success = true
-		value = cv.value.(EnumConstantValue)
-	}
-	return
-}
-
-type EnumConstantValue struct {
-	// The reference must be resolved to an MojomEnum.
-	enumType TypeReference
-
-	enumValueName string
-
-	intValue int32
-}
-
-/////////////////////////////////////////////////////////////
 // Declaration Data
 /////////////////////////////////////////////////////////////
 type DeclarationData struct {
-	Name                  string
-	Attributes            MojomAttributes
-	containedDeclarations *ContainedDeclarations
+	SimpleName            string
+	Attributes            *Attributes
+	ContainedDeclarations *ContainedDeclarations
 }
 
-type MojomAttributes []MojomAttribute
+func NewDeclarationData(simpleName string, attributes *Attributes) *DeclarationData {
+	declarationData := new(DeclarationData)
+	declarationData.SimpleName = simpleName
+	declarationData.Attributes = attributes
+	return declarationData
+}
+
+type Attributes struct {
+	List []MojomAttribute
+}
+
+func NewAttributes() *Attributes {
+	attributes := new(Attributes)
+	attributes.List = make([]MojomAttribute, 1)
+	return attributes
+}
 
 type MojomAttribute struct {
-	key, value string
+	Key, Value string
 }
 
 type ContainedDeclarations struct {

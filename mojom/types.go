@@ -205,6 +205,10 @@ type TypeReference struct {
 
 	interfaceRequest bool
 
+	// The scope where this type reference occurred. This is
+	// used to resolve the identifier.
+	Scope *Scope
+
 	// The identifier as it appears at the reference site.
 	identifier string
 
@@ -213,6 +217,20 @@ type TypeReference struct {
 	usedAsConstantValue bool
 
 	resolvedType UserDefinedType
+}
+
+type ScopeKind int
+
+const (
+	MODULE ScopeKind = iota
+	INTERFACE
+	STRUCT
+)
+
+type Scope struct {
+	Kind               ScopeKind
+	ParentScope        *Scope
+	FullyQualifiedName string
 }
 
 func (TypeReference) Kind() TypeKind {
@@ -239,4 +257,142 @@ func (t TypeReference) Identical(other Type) bool {
 		return false
 	}
 	return t.resolvedType.Identical(otherTypeReference.resolvedType)
+}
+
+/////////////////////////////////////////////////////////////
+// Constant Occurrence
+/////////////////////////////////////////////////////////////
+
+// A constant occurrence represents an occurrence in a .mojom file of
+// a constant. This may be either a constant literal or an identifier
+// that refers to user-defined constant, or an identifier that refers
+// to a user-defined enum value
+type ConstantOccurrence struct {
+	isLiteral bool
+
+	// The value of the constant or nil if the constant is not yet resolved.
+	value *ConstantValue
+
+	// The scope where this constant reference occurred. This is
+	// used to resolve the identifier.
+	Scope *Scope
+
+	identifier       string
+	resolvedConstant *UserDefinedConstant
+}
+
+/////////////////////////////////////////////////////////////
+// Constant Values
+/////////////////////////////////////////////////////////////
+///
+type ConstantValue struct {
+	// The Type must be simple, string, or a type references
+	// whose resolvedType is an enum type. The accessor methods
+	// below return the appropriate type of value.
+	valueType Type
+
+	value interface{}
+}
+
+func (cv ConstantValue) isSimpleType(simpleType SimpleType) bool {
+	if cv.valueType.Kind() == SIMPLE_TYPE {
+		if cv.valueType.(SimpleType) == simpleType {
+			return true
+		}
+	}
+	return false
+}
+
+func (cv ConstantValue) GetBoolValue() (value bool, success bool) {
+	if success = cv.isSimpleType(BOOL); success {
+		value = cv.value.(bool)
+	}
+	return
+}
+
+func (cv ConstantValue) GetDoubleValue() (value float64, success bool) {
+	if success = cv.isSimpleType(DOUBLE); success {
+		value = cv.value.(float64)
+	}
+	return
+}
+
+func (cv ConstantValue) GetFloatValue() (value float32, success bool) {
+	if success = cv.isSimpleType(FLOAT); success {
+		value = cv.value.(float32)
+	}
+	return
+}
+
+func (cv ConstantValue) GetInt8Value() (value int8, success bool) {
+	if success = cv.isSimpleType(INT8); success {
+		value = cv.value.(int8)
+	}
+	return
+}
+
+func (cv ConstantValue) GetInt16Value() (value int16, success bool) {
+	if success = cv.isSimpleType(INT16); success {
+		value = cv.value.(int16)
+	}
+	return
+}
+
+func (cv ConstantValue) GetInt32Value() (value int32, success bool) {
+	if success = cv.isSimpleType(INT32); success {
+		value = cv.value.(int32)
+	}
+	return
+}
+
+func (cv ConstantValue) GetInt64Value() (value int64, success bool) {
+	if success = cv.isSimpleType(INT64); success {
+		value = cv.value.(int64)
+	}
+	return
+}
+
+func (cv ConstantValue) GetIntU8Value() (value uint8, success bool) {
+	if success = cv.isSimpleType(UINT8); success {
+		value = cv.value.(uint8)
+	}
+	return
+}
+
+func (cv ConstantValue) GetUInt16Value() (value uint16, success bool) {
+	if success = cv.isSimpleType(UINT16); success {
+		value = cv.value.(uint16)
+	}
+	return
+}
+
+func (cv ConstantValue) GetUInt32Value() (value uint32, success bool) {
+	if success = cv.isSimpleType(UINT32); success {
+		value = cv.value.(uint32)
+	}
+	return
+}
+
+func (cv ConstantValue) GetUInt64Value() (value uint64, success bool) {
+	if success = cv.isSimpleType(UINT64); success {
+		value = cv.value.(uint64)
+	}
+	return
+}
+
+func (cv ConstantValue) GetEnumValue() (value EnumConstantValue, success bool) {
+	if cv.valueType.Kind() == TYPE_REFERENCE {
+		success = true
+		value = cv.value.(EnumConstantValue)
+	}
+	return
+}
+
+type EnumConstantValue struct {
+	// The reference must be resolved to an MojomEnum.
+	enumType TypeReference
+
+	enumValueName string
+
+	intValue int32
 }

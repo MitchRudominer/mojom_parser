@@ -73,6 +73,14 @@ func (tokenKind TokenKind) String() string {
 		return "'('"
 	case RPAREN:
 		return "')'"
+	case LBRACKET:
+		return "'['"
+	case RBRACKET:
+		return "']'"
+	case LANGLE:
+		return "'<'"
+	case RANGLE:
+		return "'>'"
 	case LBRACE:
 		return "'{'"
 	case RBRACE:
@@ -87,6 +95,12 @@ func (tokenKind TokenKind) String() string {
 	// Keywords
 	case INTERFACE:
 		return "'interface'"
+	case MODULE:
+		return "'module'"
+
+	// Constants
+	case STRING_LITERAL:
+		return "a string literal"
 
 	// TODO: Add the rest
 	default:
@@ -130,7 +144,7 @@ func (t Token) EOF() bool {
 // Unexpected token at line 5, column 6: '###'. Expecting '{'.
 func (token Token) String() string {
 	switch token.Kind {
-	case ERROR_UNKNOWN:
+	case ERROR_UNKNOWN, IDENTIFIER, STRING_LITERAL:
 		return fmt.Sprintf("'%s'", token.Text)
 
 	default:
