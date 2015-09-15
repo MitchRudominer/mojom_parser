@@ -71,19 +71,20 @@ type Parser struct {
 	debugMode bool
 }
 
-func NewParser(fileName string, inputStream lexer.TokenStream,
+func NewParser(fileName, fileContents string,
 	descriptorToPopulate *mojom.MojomDescriptor) Parser {
 	if descriptorToPopulate == nil {
 		panic("descriptorToPopulate must not be nil")
 	}
+	inputStream := lexer.Tokenize(fileContents)
 	parser := Parser{inputStream: inputStream, mojomDescriptor: descriptorToPopulate}
 	parser.mojomDescriptor = descriptorToPopulate
 	parser.mojomFile = parser.mojomDescriptor.AddMojomFile(fileName)
 	return parser
 }
 
-func ParserForDebugging(inputStream lexer.TokenStream) Parser {
-	parser := NewParser("fakeModule", inputStream, mojom.NewMojomDescriptor())
+func ParserForDebugging(fileContents string) Parser {
+	parser := NewParser("fakeModule", fileContents, mojom.NewMojomDescriptor())
 	parser.debugMode = true
 	return parser
 }

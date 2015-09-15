@@ -2,11 +2,10 @@ package parser
 
 import (
 	"fmt"
-	"github.com/rudominer/mojom_parser/lexer"
 	"testing"
 )
 
-func buildTestInputStream() lexer.TokenStream {
+func buildTestFileContents() string {
 	contents := `
 	[color=red, size=big]
 	module foo.bar;
@@ -17,15 +16,15 @@ func buildTestInputStream() lexer.TokenStream {
 		DoIt();
 	};
 	`
-	return lexer.Tokenize(contents)
+	return contents
 }
 
 // This is not really an automated test. I am just using this as a hook
 // to run the code in parser and print out some of the results. Eventually
 // I will put real tests here.
 func TestParseSuccess(t *testing.T) {
-	inputStream := buildTestInputStream()
-	parser := ParserForDebugging(inputStream)
+	fileContents := buildTestFileContents()
+	parser := ParserForDebugging(fileContents)
 	parser.Parse()
 	fmt.Printf("Is OK: %v\n", parser.OK())
 	fmt.Printf("Error message: %s\n", parser.ErrorMessage())
