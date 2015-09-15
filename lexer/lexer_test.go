@@ -89,7 +89,7 @@ func TestTokenPosition(t *testing.T) {
 	token := tokens[0]
 
 	checkEq(t, 5, token.CharPos)
-	checkEq(t, 2, token.LineNo)
+	checkEq(t, 1, token.LineNo)
 	checkEq(t, 2, token.LinePos)
 }
 

@@ -127,9 +127,9 @@ func (tokenKind TokenKind) String() string {
 type Token struct {
 	Kind    TokenKind
 	Text    string
-	CharPos int // TODO(azani) Explain what this is to rudominer
-	LineNo  int // 1-based
-	LinePos int // 0-based
+	CharPos int // Position in the source string.
+	LineNo  int // First line is 0.
+	LinePos int // Position in the line. First char in line is 0.
 }
 
 // This method is used to generate user-facing strings in compilation error
@@ -137,7 +137,7 @@ type Token struct {
 // like the following:
 // Unexpected token at line 5, column 6: '###'. Expecting '{'.
 func (t Token) LocationString() string {
-	return fmt.Sprintf("line %d, column %d", t.LineNo, t.LinePos)
+	return fmt.Sprintf("line %d, column %d", t.LineNo+1, t.LinePos+1)
 }
 
 // Is this the EOF token that represent the end of the token stream?

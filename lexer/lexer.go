@@ -32,7 +32,7 @@ func (l *lexer) emitToken(tokenType TokenKind) {
 		Kind:    tokenType,
 		Text:    l.source[l.start:l.offset],
 		CharPos: l.start,
-		LineNo:  l.lineStart + 1,
+		LineNo:  l.lineStart,
 		LinePos: l.lineOffsetStart}
 	l.startToken()
 }
@@ -43,7 +43,7 @@ func (l *lexer) emitError() {
 		Kind:    ERROR_UNKNOWN,
 		Text:    "", // TODO(azani): Put something there?
 		CharPos: l.offset,
-		LineNo:  l.lineNo + 1,
+		LineNo:  l.lineNo,
 		LinePos: l.lineOffset}
 }
 
