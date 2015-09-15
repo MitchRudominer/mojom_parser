@@ -121,8 +121,17 @@ func TestTokenizeMoreThanOne(t *testing.T) {
 	checkEq(t, EOF, ts.PeekNext().Kind)
 }
 
-func TestBadToken(t *testing.T) {
+func TestIllegalChar(t *testing.T) {
 	ts := Tokenize("   \t $   ")
-	token := ts.PeekNext()
-	checkEq(t, ERROR_UNKNOWN, token.Kind)
+	checkEq(t, ERROR_ILLEGAL_CHAR, ts.PeekNext().Kind)
+}
+
+func TestUnterminatedStringLiteralEos(t *testing.T) {
+	ts := Tokenize("\"hello world")
+	checkEq(t, ERROR_UNTERMINATED_STRING_LITERAL, ts.PeekNext().Kind)
+}
+
+func TestUnterminatedStringLiteralEol(t *testing.T) {
+	ts := Tokenize("\"hello\n world\"")
+	checkEq(t, ERROR_UNTERMINATED_STRING_LITERAL, ts.PeekNext().Kind)
 }

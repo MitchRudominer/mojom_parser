@@ -14,7 +14,9 @@ type TokenKind int
 const (
 	// Errors
 	ERROR_UNKNOWN TokenKind = iota
-	EOF                     // Indicates the end of a stream of tokens
+	ERROR_ILLEGAL_CHAR
+	ERROR_UNTERMINATED_STRING_LITERAL
+	EOF // Indicates the end of a stream of tokens
 
 	// Punctuators and Separators
 	LPAREN

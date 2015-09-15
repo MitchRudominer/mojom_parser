@@ -37,16 +37,6 @@ func (l *lexer) emitToken(tokenType TokenKind) {
 	l.startToken()
 }
 
-// Assumes you stop parsing now.
-func (l *lexer) emitError() {
-	l.tokens <- Token{
-		Kind:    ERROR_UNKNOWN,
-		Text:    "", // TODO(azani): Put something there?
-		CharPos: l.offset,
-		LineNo:  l.lineNo,
-		LinePos: l.lineOffset}
-}
-
 func (l *lexer) startToken() {
 	l.start = l.offset
 	l.lineStart = l.lineNo
@@ -55,6 +45,10 @@ func (l *lexer) startToken() {
 
 func (l *lexer) Consume() {
 	c, width := utf8.DecodeRuneInString(l.source[l.offset:])
+	if width == 0 {
+		width = 1
+	}
+
 	if c == '\n' {
 		l.lineNo += 1
 		l.lineOffset = 0
@@ -71,6 +65,10 @@ func (l lexer) String() string {
 func (l *lexer) Peek() rune {
 	char, _ := utf8.DecodeRuneInString(l.source[l.offset:])
 	return char
+}
+
+func (l *lexer) IsEos() bool {
+	return l.offset >= len(l.source)
 }
 
 func (l *lexer) run() {
@@ -104,7 +102,8 @@ func lexRoot(l *lexer) stateFn {
 		return lexSkip
 	}
 
-	l.emitError()
+	l.Consume()
+	l.emitToken(ERROR_ILLEGAL_CHAR)
 	return nil
 }
 
@@ -324,13 +323,18 @@ func lexString(l *lexer) stateFn {
 	// Consume opening quotes.
 	l.Consume()
 
-	for l.Peek() != '"' {
+	for !l.IsEos() && l.Peek() != '"' && l.Peek() != '\n' {
 		if l.Peek() == '\\' {
 			// If we see an escape character consume whatever follows blindly.
 			// TODO(azani): Consider parsing escape sequences.
 			l.Consume()
 		}
 		l.Consume()
+	}
+
+	if l.IsEos() || l.Peek() == '\n' {
+		l.emitToken(ERROR_UNTERMINATED_STRING_LITERAL)
+		return nil
 	}
 
 	// Consume the closing quotes
