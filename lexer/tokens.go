@@ -35,8 +35,8 @@ const (
 	EQUALS
 	RESPONSE
 
-	// Identifiers
-	IDENTIFIER
+	// Names
+	NAME
 
 	// Keywords
 	IMPORT
@@ -96,8 +96,8 @@ func (tokenKind TokenKind) String() string {
 		return "'='"
 
 	// Identifiers
-	case IDENTIFIER:
-		return "an identifier"
+	case NAME:
+		return "a name"
 
 	// Keywords
 	case IMPORT:
@@ -155,7 +155,7 @@ func (t Token) EOF() bool {
 // Unexpected token at line 5, column 6: '###'. Expecting '{'.
 func (token Token) String() string {
 	switch token.Kind {
-	case ERROR_UNKNOWN, IDENTIFIER, STRING_LITERAL:
+	case ERROR_UNKNOWN, NAME, STRING_LITERAL:
 		return fmt.Sprintf("'%s'", token.Text)
 
 	default:

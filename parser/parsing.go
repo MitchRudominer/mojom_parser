@@ -325,7 +325,7 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 		}
 		nextToken := p.peekNextToken("I was parsing an interface body.")
 		switch nextToken.Kind {
-		case lexer.IDENTIFIER:
+		case lexer.NAME:
 			method := p.parseMethodDecl(attributes)
 			attributes = nil
 			if p.OK() {
@@ -603,7 +603,7 @@ func (p *Parser) readStringLiteral() (literal string) {
 }
 
 func (p *Parser) readIdentifier() (identifier string) {
-	return p.readText(lexer.IDENTIFIER)
+	return p.readText(lexer.NAME)
 }
 
 func (p *Parser) readName() (name string) {

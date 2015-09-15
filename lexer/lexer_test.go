@@ -38,7 +38,7 @@ func TestAllSingleTokens(t *testing.T) {
 		{"?", QSTN},
 		{"=", EQUALS},
 		{"=>", RESPONSE},
-		{"somet_hi3ng", IDENTIFIER},
+		{"somet_hi3ng", NAME},
 		{"import", IMPORT},
 		{"module", MODULE},
 		{"struct", STRUCT},

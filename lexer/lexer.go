@@ -92,8 +92,8 @@ func lexRoot(l *lexer) stateFn {
 		return lexSingleCharTokens
 	case isEqualsOrResponseStart(c):
 		return lexEqualsOrResponse
-	case isIdentifierStart(c):
-		return lexIdentifier
+	case isNameStart(c):
+		return lexName
 	case isOrdinalStart(c):
 		return lexOrdinal
 	case isNumberStart(c):
@@ -184,7 +184,7 @@ func isHexDigit(c rune) bool {
 	return isDigit(c) || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
 
-func isIdentifierStart(c rune) bool {
+func isNameStart(c rune) bool {
 	return isAlpha(c) || c == '_'
 }
 
@@ -202,23 +202,21 @@ var keywordTokens = map[string]TokenKind{
 }
 
 // valid C identifiers (K&R2: A.2.3)
-func lexIdentifier(l *lexer) stateFn {
+func lexName(l *lexer) stateFn {
 	l.Consume()
 
-	// NOTE(rudominer) The following is not correct because an identifier
-	// cannot end with a period.
-	isIdRune := func(c rune) bool {
-		return isAlpha(c) || isDigit(c) || c == '_' || c == '.'
+	isNameRune := func(c rune) bool {
+		return isAlpha(c) || isDigit(c) || c == '_'
 	}
 
-	for isIdRune(l.Peek()) {
+	for isNameRune(l.Peek()) {
 		l.Consume()
 	}
 
 	if token, found := keywordTokens[l.CurText()]; found {
 		l.emitToken(token)
 	} else {
-		l.emitToken(IDENTIFIER)
+		l.emitToken(NAME)
 	}
 
 	return lexRoot
