@@ -35,7 +35,7 @@ type parserError struct {
 	message string
 }
 
-// Make parserError implement errors.error
+// Make parserError implement the error interface.
 func (e parserError) Error() string {
 	return e.message
 }
@@ -104,6 +104,10 @@ func (p *Parser) GetParseTree() *ParseNode {
 // Returns whether or not the current error state os OK
 func (p *Parser) OK() bool {
 	return p.err.code == E_OK
+}
+
+func (p *Parser) GetError() error {
+	return p.err
 }
 
 // Returns whether or not there is currently a non-OK error state.

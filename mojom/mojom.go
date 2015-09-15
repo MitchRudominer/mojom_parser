@@ -17,6 +17,14 @@ type MojomDescriptor struct {
 	unresolvedConstantReferences []*ConstantOccurrence
 }
 
+func (d *MojomDescriptor) Serialize() []byte {
+	return nil
+}
+
+func (d *MojomDescriptor) ContainsFile(fileName string) bool {
+	return false
+}
+
 func (d *MojomDescriptor) AddNewType(newType UserDefinedType) {
 	d.typesByKey[newType.GetTypeKey()] = newType
 	d.typeKeysByFQName[newType.GetFullyQualifiedName()] = newType.GetTypeKey()
