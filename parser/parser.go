@@ -121,7 +121,7 @@ func (p *Parser) Eof() bool {
 
 func (p *Parser) Parse() {
 	// Our start symbol is ATTR_MOJOM_FILE
-	p.parseAttrMojomFile()
+	p.parseMojomFile()
 
 	// Check if there are any extraneous tokens left in the stream.
 	if p.OK() && !p.checkEOF() {

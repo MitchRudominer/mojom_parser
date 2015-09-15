@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/rudominer/mojom_parser/lexer"
 	"github.com/rudominer/mojom_parser/mojom"
+	"strconv"
 	"strings"
 )
 
@@ -40,37 +41,25 @@ import (
 // MOJOM_DECL       -> INTRFC_DECL | STRUCT_DECL | UNION_DECL | ENUM_DECL | CONSTANT_DECL
 // ATTRIBUTES       -> lbracket ATTR_ASSIGNMENT { comma, ATTR_ASSIGNMENT}
 // ATTR_ASSIGNMENT  -> NAME equals NAME | NAME equals LITERAL
-// INTRFC_DECL      -> interface NAME lbrace INTRFC_BODY rbrace semi
+// INTRFC_DECL      -> interface NAME lbrace ATTR_INTRFC_BODY rbrace semi
+// ATTR_INTRFC_BODY -> ATTRIBUTES INTRFC_BODY  | INTRFC_BODY
 // INTRFC_BODY      -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
-// METHOD_DECL      -> NAME [ORDINAL] lparen [PARAM_LIST] rparen semi
+// METHOD_DECL      -> NAME [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen ]semi
+// METHOD_RESPONSE  ->
 // PARAM_LIST       -> PARAM_DECL {, PARAM_DECL}
 // PARAM_DECL       -> TYPE NAME [ORDINAL]
 // TYPE             ->
-
-// ATTR_MOJOM_FILE  -> ATTRIBUTES MOJOM_FILE | MOJOM_FILE
-func (p *Parser) parseAttrMojomFile() bool {
+func (p *Parser) parseMojomFile() bool {
 	if p.Error() {
 		return false
 	}
-	p.pushRootNode("AttrMojomFile")
+	p.pushRootNode("MojomFile")
 	defer p.popNode()
 
 	initialAttributes := p.parseAttributes()
 	if p.Error() {
 		return false
 	}
-	return p.parseMojomFile(initialAttributes)
-}
-
-// MOJOM_FILE   -> MODULE_DECL {IMPORT_STMNT} {MOJOM_DECL}
-// MOJOM_FILE   -> IMPORT_STMNT {IMPORT_STMNT} {MOJOM_DECL}
-// MOJOM_FILE   -> MOJOM_DECL {ATTR_MOJOM_DECL}
-func (p *Parser) parseMojomFile(initialAttributes *mojom.Attributes) bool {
-	if p.Error() {
-		return false
-	}
-	p.pushRootNode("MojomFile")
-	defer p.popNode()
 
 	moduleDeclExists := p.parseModuleDecl(initialAttributes)
 	if p.Error() {
@@ -136,7 +125,7 @@ func (p *Parser) parseMojomFile(initialAttributes *mojom.Attributes) bool {
 			p.parseConstDecl(attributes)
 		default:
 			message := fmt.Sprintf("Unexpected token at %s: %s. "+
-				"Expecting interface, struct, union, enum or constant.",
+				"Expecting interface, struct, union, enum or const.",
 				nextToken.LocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
 			return false
@@ -152,11 +141,10 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 		return
 	}
 
-	if p.checkEOF() || p.lastPeek.Kind != lexer.LBRACKET {
+	if !p.tryMatch(lexer.LBRACKET) {
 		// There is no attributes section here
 		return
 	}
-	p.consumeNextToken() // consume the LBRACKET
 
 	p.pushChildNode("attributes")
 	defer p.popNode()
@@ -322,13 +310,122 @@ func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) bool {
 	return p.OK()
 }
 
+// ATTR_INTRFC_BODY -> ATTRIBUTES INTRFC_BODY  | INTRFC_BODY
+// INTRFC_BODY -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
 func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 	if p.Error() {
 		return p.OK()
 	}
 	p.pushChildNode("interfaceBody")
 	defer p.popNode()
+
+	rbraceFound := false
+	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
+		if p.Error() {
+			return false
+		}
+		nextToken := p.peekNextToken("I was parsing an interface body.")
+		switch nextToken.Kind {
+		case lexer.IDENTIFIER:
+			method := p.parseMethodDecl(attributes)
+			attributes = nil
+			if p.OK() {
+				mojomInterface.AddMethod(method)
+			}
+		case lexer.ENUM:
+			p.parseEnumDecl(attributes)
+		case lexer.CONST:
+			p.parseConstDecl(attributes)
+		case lexer.RBRACE:
+			rbraceFound = true
+			if attributes != nil {
+				message := "Interface body ends with extranesous attributes."
+				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+			}
+			break
+		default:
+			message := fmt.Sprintf("Unexpected token within interface body at %s: %s. "+
+				"Expecting union, enum, const or an identifier",
+				nextToken.LocationString(), nextToken)
+			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return false
+		}
+	}
+	if p.OK() {
+		mojomInterface.ComputeMethodOrdinals()
+	}
 	return p.OK()
+}
+
+// METHOD_DECL -> NAME [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen ]semi
+func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMethod {
+	if p.Error() {
+		return nil
+	}
+	p.pushChildNode("methodDecl")
+	defer p.popNode()
+
+	methodName := p.readName()
+	if p.Error() {
+		return nil
+	}
+
+	// Check for an ordinal value
+	ordinalValue := -1
+	if p.tryMatch(lexer.ORDINAL) {
+		ordinalValue, err := strconv.Atoi(p.lastPeek.Text)
+		if err != nil || ordinalValue < 0 {
+			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
+		}
+	}
+	if p.Error() {
+		return nil
+	}
+
+	if !p.match(lexer.LPAREN) {
+		return nil
+	}
+
+	params := p.parseParams()
+	if p.Error() {
+		return nil
+	}
+
+	if !p.match(lexer.RPAREN) {
+		return nil
+	}
+	rParenBeforeSemicolon := p.lastPeek
+
+	// Check for a response message
+	var responseParams *mojom.MojomStruct = nil
+	if p.tryMatch(lexer.RESPONSE) {
+		if !p.match(lexer.LPAREN) {
+			return nil
+		}
+
+		responseParams = p.parseParams()
+		if p.Error() {
+			return nil
+		}
+
+		if !p.match(lexer.RPAREN) {
+			return nil
+		}
+		rParenBeforeSemicolon = p.lastPeek
+	}
+
+	if !p.matchSemicolonToken(rParenBeforeSemicolon) {
+		return nil
+	}
+
+	mojomMethod := mojom.NewMojomMethod(methodName, ordinalValue, params, responseParams)
+	return mojomMethod
+}
+
+func (p *Parser) parseParams() *mojom.MojomStruct {
+	p.pushChildNode("params")
+	defer p.popNode()
+	return nil
 }
 
 func (p *Parser) parseStructDecl(attributes *mojom.Attributes) bool {
@@ -416,8 +513,22 @@ func (p *Parser) match(expectedKind lexer.TokenKind) bool {
 	return true
 }
 
-func (p *Parser) matchSemicolon() bool {
-	previousToken := p.lastPeek
+func (p *Parser) tryMatch(expectedKind lexer.TokenKind) bool {
+	if p.checkEOF() {
+		return false
+	}
+	if p.Error() {
+		return false
+	}
+	nextToken := p.lastPeek
+	if nextToken.Kind != expectedKind {
+		return false
+	}
+	p.consumeNextToken()
+	return true
+}
+
+func (p *Parser) matchSemicolonToken(previousToken lexer.Token) bool {
 	if p.match(lexer.SEMI) {
 		return true
 	}
@@ -425,6 +536,10 @@ func (p *Parser) matchSemicolon() bool {
 		previousToken, previousToken.LocationString())
 	p.err = parserError{E_UNEXPECTED_TOKEN, message}
 	return false
+}
+
+func (p *Parser) matchSemicolon() bool {
+	return p.matchSemicolonToken(p.lastPeek)
 }
 
 func (p *Parser) readText(kind lexer.TokenKind) (text string) {
@@ -494,8 +609,9 @@ func newParseNode(name string) *ParseNode {
 	return node
 }
 
-func (node *ParseNode) appendChild(name string) *ParseNode {
+func (node *ParseNode) appendChild(name string, firstToken *lexer.Token) *ParseNode {
 	child := newParseNode(name)
+	child.firstToken = firstToken
 	child.parent = node
 	node.children = append(node.children, child)
 	return child
@@ -511,7 +627,8 @@ func (p *Parser) pushRootNode(name string) {
 
 func (p *Parser) pushChildNode(name string) {
 	if p.currentNode != nil {
-		childNode := p.currentNode.appendChild(name)
+		lastPeekCopy := p.lastPeek
+		childNode := p.currentNode.appendChild(name, &(lastPeekCopy))
 		p.currentNode = childNode
 	}
 }

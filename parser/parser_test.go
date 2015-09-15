@@ -36,7 +36,7 @@ func buildTestInputStream() lexer.TokenSlice {
 		[]interface{}{
 			lexer.LBRACKET,
 			P{lexer.IDENTIFIER, "color"},
-			//lexer.EQUALS,
+			lexer.EQUALS,
 			P{lexer.IDENTIFIER, "red"},
 			lexer.COMMA,
 			P{lexer.IDENTIFIER, "size"},
@@ -55,6 +55,10 @@ func buildTestInputStream() lexer.TokenSlice {
 			lexer.INTERFACE,
 			P{lexer.IDENTIFIER, "baz"},
 			lexer.LBRACE,
+			P{lexer.IDENTIFIER, "DoIt"},
+			lexer.LPAREN,
+			lexer.RPAREN,
+			lexer.SEMI,
 			lexer.RBRACE,
 			lexer.SEMI,
 		})

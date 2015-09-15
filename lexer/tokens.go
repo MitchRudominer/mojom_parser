@@ -90,18 +90,24 @@ func (tokenKind TokenKind) String() string {
 		return "'}'"
 	case SEMI:
 		return "';'"
+	case EQUALS:
+		return "'='"
 
 	// Identifiers
 	case IDENTIFIER:
 		return "an identifier"
 
 	// Keywords
+	case IMPORT:
+		return "import"
 	case INTERFACE:
 		return "'interface'"
 	case MODULE:
 		return "'module'"
 
 	// Constants
+	case ORDINAL:
+		return "an ordinal"
 	case STRING_LITERAL:
 		return "a string literal"
 

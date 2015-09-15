@@ -188,7 +188,7 @@ func (m *MojomFile) AddNewType(newType UserDefinedType, simpleName string,
 }
 
 func (m *MojomFile) AddInterface(simpleName string, attributes *Attributes) *MojomInterface {
-	mojomInterface := new(MojomInterface)
+	mojomInterface := NewMojomInterface()
 	m.AddNewType(mojomInterface, simpleName, attributes)
 	m.Interfaces = append(m.Interfaces, mojomInterface)
 	return mojomInterface
@@ -297,22 +297,59 @@ type MojomInterface struct {
 	methodsByName map[string]*MojomMethod
 }
 
+func NewMojomInterface() *MojomInterface {
+	mojomInterface := new(MojomInterface)
+	mojomInterface.methodsByOrdinal = make(map[int]*MojomMethod)
+	mojomInterface.methodsByName = make(map[string]*MojomMethod)
+	return mojomInterface
+}
+
 func (m *MojomInterface) String() string {
 	if m == nil {
 		return "nil"
 	}
 	s := fmt.Sprintf("\n---------interface--------------\n")
 	s += fmt.Sprintf("%s", m.UserDefinedTypeBase)
+	s += "     Methods\n"
+	s += "     -------\n"
+	for _, method := range m.methodsByName {
+		s += fmt.Sprintf("     %s\n", method)
+	}
 	return s
+}
+
+func (m *MojomInterface) AddMethod(method *MojomMethod) {
+	m.methodsByName[method.declarationData.SimpleName] = method
+}
+
+func (m *MojomInterface) ComputeMethodOrdinals() {
+	// TODO
 }
 
 type MojomMethod struct {
 	declarationData *DeclarationData
 
-	parameters MojomStruct
+	parameters *MojomStruct
 
-	hasResponse        bool
-	responseParameters MojomStruct
+	responseParameters *MojomStruct
+}
+
+func NewMojomMethod(name string, ordinalValue int, params,
+	responseParams *MojomStruct) *MojomMethod {
+	mojomMethod := new(MojomMethod)
+	mojomMethod.declarationData = NewDeclarationData(name, nil)
+	if ordinalValue >= 0 {
+		mojomMethod.declarationData.DeclaredOrdinal = ordinalValue
+	}
+	mojomMethod.parameters = params
+	mojomMethod.responseParameters = responseParams
+	return mojomMethod
+}
+
+func (m *MojomMethod) String() string {
+	parameterString := ""
+	responseString := ""
+	return fmt.Sprintf("%s(%s)%s", m.declarationData.SimpleName, parameterString, responseString)
 }
 
 func (MojomInterface) Kind() UserDefinedTypeKind {
@@ -393,6 +430,7 @@ type UserDefinedConstant struct {
 type DeclarationData struct {
 	SimpleName            string
 	Attributes            *Attributes
+	DeclaredOrdinal       int
 	ContainedDeclarations *ContainedDeclarations
 }
 
