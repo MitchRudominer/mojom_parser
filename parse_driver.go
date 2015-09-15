@@ -30,10 +30,10 @@ func NewParseDriver(fileProvider FileProvider) ParseDriver {
 
 func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
 	d.descriptor = mojom.NewMojomDescriptor()
-	fileNamesToBeParsed := fileNames
-	for len(fileNamesToBeParsed) > 0 {
-		nextFileName := fileNamesToBeParsed[0]
-		d.fileNamesToBeParsed = fileNamesToBeParsed[1:]
+	d.fileNamesToBeParsed = fileNames
+	for len(d.fileNamesToBeParsed) > 0 {
+		nextFileName := d.fileNamesToBeParsed[0]
+		d.fileNamesToBeParsed = d.fileNamesToBeParsed[1:]
 		if !d.descriptor.ContainsFile(nextFileName) {
 			contents := d.fileProvider.ProvideContents(nextFileName)
 			parser := parser.NewParser(nextFileName, contents, d.descriptor)
