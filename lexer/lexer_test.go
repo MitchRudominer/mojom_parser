@@ -112,6 +112,15 @@ func TestTokenize(t *testing.T) {
 	checkEq(t, EOF, token.Kind)
 }
 
+func TestTokenizeMoreThanOne(t *testing.T) {
+	ts := Tokenize("()")
+	checkEq(t, LPAREN, ts.PeekNext().Kind)
+	ts.ConsumeNext()
+	checkEq(t, RPAREN, ts.PeekNext().Kind)
+	ts.ConsumeNext()
+	checkEq(t, EOF, ts.PeekNext().Kind)
+}
+
 func TestBadToken(t *testing.T) {
 	ts := Tokenize("   \t $   ")
 	token := ts.PeekNext()
