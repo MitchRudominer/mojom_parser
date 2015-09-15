@@ -205,8 +205,10 @@ var keywordTokens = map[string]TokenKind{
 func lexIdentifier(l *lexer) stateFn {
 	l.Consume()
 
+	// NOTE(rudominer) The following is not correct because an identifier
+	// cannot end with a period.
 	isIdRune := func(c rune) bool {
-		return isAlpha(c) || isDigit(c) || c == '_'
+		return isAlpha(c) || isDigit(c) || c == '_' || c == '.'
 	}
 
 	for isIdRune(l.Peek()) {
