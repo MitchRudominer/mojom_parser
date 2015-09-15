@@ -267,6 +267,41 @@ type MojomStruct struct {
 	fields []StructField
 }
 
+func NewMojomStruct() *MojomStruct {
+	mojomStruct := new(MojomStruct)
+	mojomStruct.fields = make([]StructField, 0)
+	return mojomStruct
+}
+
+func (s *MojomStruct) AddField(fieldType Type, name string,
+	ordinalValue int, attributes *Attributes) {
+	field := StructField{fieldType: fieldType}
+	field.SimpleName = name
+	field.DeclaredOrdinal = ordinalValue
+	field.Attributes = attributes
+	s.fields = append(s.fields, field)
+}
+
+func (s MojomStruct) ParameterString() string {
+	str := ""
+	for i, f := range s.fields {
+		if i > 0 {
+			str += ", "
+		}
+		attributesString := ""
+		if f.Attributes != nil {
+			attributesString = fmt.Sprintf("%s", f.Attributes)
+		}
+		ordinalString := ""
+		if f.DeclaredOrdinal >= 0 {
+			ordinalString = fmt.Sprintf("@%d", f.DeclaredOrdinal)
+		}
+		str += fmt.Sprintf("%s%s %s%s", attributesString, f.fieldType,
+			f.SimpleName, ordinalString)
+	}
+	return str
+}
+
 type StructField struct {
 	DeclarationData
 
@@ -347,8 +382,11 @@ func NewMojomMethod(name string, ordinalValue int, params,
 }
 
 func (m *MojomMethod) String() string {
-	parameterString := ""
+	parameterString := m.parameters.ParameterString()
 	responseString := ""
+	if m.responseParameters != nil {
+		responseString = fmt.Sprintf(" => (%s)", m.responseParameters.ParameterString())
+	}
 	return fmt.Sprintf("%s(%s)%s", m.declarationData.SimpleName, parameterString, responseString)
 }
 

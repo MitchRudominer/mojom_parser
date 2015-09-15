@@ -90,6 +90,8 @@ func (tokenKind TokenKind) String() string {
 		return "'}'"
 	case SEMI:
 		return "';'"
+	case COMMA:
+		return "','"
 	case EQUALS:
 		return "'='"
 

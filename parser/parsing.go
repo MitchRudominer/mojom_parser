@@ -44,10 +44,9 @@ import (
 // INTRFC_DECL      -> interface NAME lbrace ATTR_INTRFC_BODY rbrace semi
 // ATTR_INTRFC_BODY -> ATTRIBUTES INTRFC_BODY  | INTRFC_BODY
 // INTRFC_BODY      -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
-// METHOD_DECL      -> NAME [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen ]semi
-// METHOD_RESPONSE  ->
+// METHOD_DECL      -> NAME [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
 // PARAM_LIST       -> PARAM_DECL {, PARAM_DECL}
-// PARAM_DECL       -> TYPE NAME [ORDINAL]
+// PARAM_DECL       -> [ATTRIBUTES]TYPE NAME [ORDINAL]
 // TYPE             ->
 func (p *Parser) parseMojomFile() bool {
 	if p.Error() {
@@ -357,7 +356,7 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 	return p.OK()
 }
 
-// METHOD_DECL -> NAME [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen ]semi
+// METHOD_DECL -> NAME [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
 func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMethod {
 	if p.Error() {
 		return nil
@@ -370,17 +369,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 		return nil
 	}
 
-	// Check for an ordinal value
-	ordinalValue := -1
-	if p.tryMatch(lexer.ORDINAL) {
-		ordinalValue, err := strconv.Atoi(p.lastPeek.Text)
-		if err != nil || ordinalValue < 0 {
-			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
-		}
-	}
-	if p.Error() {
-		return nil
-	}
+	ordinalValue := -p.parserOrdinal()
 
 	if !p.match(lexer.LPAREN) {
 		return nil
@@ -422,10 +411,49 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 	return mojomMethod
 }
 
-func (p *Parser) parseParams() *mojom.MojomStruct {
-	p.pushChildNode("params")
+// PARAM_LIST -> PARAM_DECL {, PARAM_DECL}
+// PARAM_DECL -> [ATTRIBUTES] TYPE NAME [ORDINAL]
+func (p *Parser) parseParams() (paramStruct *mojom.MojomStruct) {
+	p.pushChildNode("parmList")
 	defer p.popNode()
-	return nil
+
+	paramStruct = mojom.NewMojomStruct()
+	nextToken := p.peekNextToken("I was parsing method parameters.")
+	for nextToken.Kind != lexer.RPAREN {
+		if p.Error() {
+			return
+		}
+		attributes := p.parseAttributes()
+		if p.Error() {
+			return
+		}
+		fieldType := p.parseType()
+		if p.Error() {
+			return
+		}
+		name := p.readName()
+		if p.Error() {
+			return
+		}
+		ordinalValue := p.parserOrdinal()
+
+		paramStruct.AddField(fieldType, name, ordinalValue, attributes)
+
+		nextToken = p.peekNextToken("I was parsing method parameters.")
+		switch nextToken.Kind {
+		case lexer.COMMA:
+			p.consumeNextToken()
+			continue
+		case lexer.RPAREN:
+			continue
+		default:
+			message := fmt.Sprintf("Unexpected token within method parameters at %s: %s. "+
+				"Expecting comma or ).", nextToken.LocationString(), nextToken)
+			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return nil
+		}
+	}
+	return
 }
 
 func (p *Parser) parseStructDecl(attributes *mojom.Attributes) bool {
@@ -457,6 +485,23 @@ func (p *Parser) parseConstDecl(attributes *mojom.Attributes) bool {
 	}
 	// TODO
 	return p.OK()
+}
+
+func (p *Parser) parseType() (mojomType mojom.Type) {
+	p.consumeNextToken()
+	return mojom.INT64
+}
+
+func (p *Parser) parserOrdinal() (ordinalValue int) {
+	ordinalValue = -1
+	if p.tryMatch(lexer.ORDINAL) {
+		x, err := strconv.Atoi(p.lastPeek.Text[1:])
+		if err != nil || x < 0 {
+			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
+		}
+		ordinalValue = x
+	}
+	return
 }
 
 ///////////////// Parsing Helper Functions ////////

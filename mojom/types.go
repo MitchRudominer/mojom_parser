@@ -1,5 +1,9 @@
 package mojom
 
+import (
+	"fmt"
+)
+
 // The different kinds of Mojom types. We divide the types into five categories:
 // simple, string, compound, handle, and user-defined.
 type TypeKind int
@@ -22,6 +26,7 @@ type Type interface {
 	AllowedAsMapKey() bool
 	Nullable() bool
 	Identical(other Type) bool
+	String() string
 }
 
 /////////////////////////////////////////////////////////////
@@ -62,6 +67,36 @@ func (t SimpleType) Identical(other Type) bool {
 	return t == other.(SimpleType)
 }
 
+func (t SimpleType) String() string {
+	switch t {
+	case BOOL:
+		return "bool"
+	case DOUBLE:
+		return "double"
+	case FLOAT:
+		return "float"
+	case INT8:
+		return "int8"
+	case INT16:
+		return "int16"
+	case INT32:
+		return "int32"
+	case INT64:
+		return "int64"
+	case UINT8:
+		return "uint8"
+	case UINT16:
+		return "uint16"
+	case UINT32:
+		return "uint32"
+	case UINT64:
+		return "uint64"
+	default:
+		panic(fmt.Sprintf("unexpected type: &d", t))
+	}
+
+}
+
 /////////////////////////////////////////////////////////////
 //String Type
 /////////////////////////////////////////////////////////////
@@ -83,6 +118,14 @@ func (s StringType) Nullable() bool {
 
 func (s StringType) Identical(other Type) bool {
 	return other.Kind() == STRING_TYPE
+}
+
+func (s StringType) String() string {
+	nullableSpecifier := ""
+	if s.nullable {
+		nullableSpecifier = "?"
+	}
+	return fmt.Sprintf("string%s", nullableSpecifier)
 }
 
 /////////////////////////////////////////////////////////////
@@ -120,6 +163,18 @@ func (a ArrayType) Identical(other Type) bool {
 	return a.fixedLength == otherArrayType.fixedLength
 }
 
+func (a ArrayType) String() string {
+	fixedLengthSpecifier := ""
+	if a.fixedLength > 0 {
+		fixedLengthSpecifier = fmt.Sprint(" ,%d", a.fixedLength)
+	}
+	nullableSpecifier := ""
+	if a.nullable {
+		nullableSpecifier = "?"
+	}
+	return fmt.Sprintf("array<%s%s>%s", a.elementType, fixedLengthSpecifier, nullableSpecifier)
+}
+
 /////////////////////////////////////////////////////////////
 // Map Type
 /////////////////////////////////////////////////////////////
@@ -155,6 +210,14 @@ func (m MapType) Identical(other Type) bool {
 		return false
 	}
 	return true
+}
+
+func (m MapType) String() string {
+	nullableSpecifier := ""
+	if m.nullable {
+		nullableSpecifier = "?"
+	}
+	return fmt.Sprintf("map<%s%s>%s", m.keyType, m.valueType, nullableSpecifier)
 }
 
 /////////////////////////////////////////////////////////////
@@ -195,6 +258,10 @@ func (h HandleType) Identical(other Type) bool {
 	}
 	otherHandleType := other.(HandleType)
 	return h.kind == otherHandleType.kind
+}
+
+func (h HandleType) String() string {
+	return "TODO(rudominer)"
 }
 
 /////////////////////////////////////////////////////////////
@@ -257,6 +324,10 @@ func (t TypeReference) Identical(other Type) bool {
 		return false
 	}
 	return t.resolvedType.Identical(otherTypeReference.resolvedType)
+}
+
+func (t TypeReference) String() string {
+	return "TODO(rudominer)"
 }
 
 /////////////////////////////////////////////////////////////

@@ -13,7 +13,7 @@ func buildTestFileContents() string {
 	import "d.e.f";
 
 	interface baz{
-		DoIt();
+	    DoIt(int64  x@4) => (int64 y, int64 z);
 	};
 	`
 	return contents
