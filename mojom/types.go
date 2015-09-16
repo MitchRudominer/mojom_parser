@@ -48,6 +48,8 @@ const (
 	UINT64
 )
 
+var AllSimpleTypes = []SimpleType{BOOL, DOUBLE}
+
 func (SimpleType) Kind() TypeKind {
 	return SIMPLE_TYPE
 }
@@ -329,6 +331,10 @@ func (t TypeReference) Identical(other Type) bool {
 func (t TypeReference) String() string {
 	return "TODO(rudominer)"
 }
+
+/////////////////////////////////////////////////////////////
+// Parsing
+/////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////
 // Constant Occurrence

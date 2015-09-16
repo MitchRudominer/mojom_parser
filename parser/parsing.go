@@ -757,6 +757,9 @@ func (p *Parser) readType() (mojomType mojom.Type) {
 	return mojom.INT64
 }
 
+type TypeParser interface {
+}
+
 ////////////////// Parse Tree /////////////////////
 
 ///// ParseNode type /////

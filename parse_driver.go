@@ -38,8 +38,8 @@ func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
 			contents := d.fileProvider.ProvideContents(nextFileName)
 			parser := parser.NewParser(nextFileName, contents, d.descriptor)
 			parser.Parse()
-			if parser.Error() {
-				d.err = parser.GetError()
+			if !parser.OK() {
+				d.err = parser.Error()
 				return ParseResult{Err: d.err, Descriptor: d.descriptor}
 			}
 			mojomFile := parser.GetMojomFile()

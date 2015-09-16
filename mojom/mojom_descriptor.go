@@ -146,8 +146,8 @@ func (d *MojomDescriptor) SprintMojomFileNames() (s string) {
 }
 
 func (d *MojomDescriptor) String() string {
-	s := fmt.Sprintf("typesByKey:\n %s", SprintMapValueNames(d.typesByKey))
-	s += fmt.Sprintf("typeKeysByFQName:\n %v", d.typeKeysByFQName)
+	s := fmt.Sprintf("typesByKey:\n----------\n%s", SprintMapValueNames(d.typesByKey))
+	s += fmt.Sprintf("typeKeysByFQName:\n----------------\n%v", d.typeKeysByFQName)
 	s += fmt.Sprintf("\nMojomFiles:\n %s\n", d.SprintMojomFileNames())
 	return s
 }

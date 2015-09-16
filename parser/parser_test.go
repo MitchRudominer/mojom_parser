@@ -20,6 +20,11 @@ func buildTestFileContents() string {
 		int64 apple;
 		int64 ball;
 	};
+
+	struct MyOtherStruct {
+		int64 bat;
+		MyStruct aStruct;
+	};
 	`
 	return contents
 }
