@@ -89,13 +89,8 @@ func (p *Parser) OK() bool {
 	return p.err.code == E_OK
 }
 
-func (p *Parser) GetError() error {
+func (p *Parser) Error() error {
 	return p.err
-}
-
-// Returns whether or not there is currently a non-OK error state.
-func (p *Parser) Error() bool {
-	return p.err.code != E_OK
 }
 
 func (p *Parser) ErrorMessage() string {

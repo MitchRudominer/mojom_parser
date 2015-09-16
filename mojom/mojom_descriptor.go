@@ -57,6 +57,7 @@ func (f *MojomFile) String() string {
 	s += fmt.Sprintf("attributes: %s\n", f.Attributes)
 	s += fmt.Sprintf("imports: %s\n", f.Imports)
 	s += fmt.Sprintf("interfaces: %s\n", f.Interfaces)
+	s += fmt.Sprintf("structs: %s\n", f.Structs)
 	return s
 }
 
@@ -84,7 +85,7 @@ func (f *MojomFile) AddUnion(mojomUnion *MojomUnion) {
 	f.Unions = append(f.Unions, mojomUnion)
 }
 
-func (f *MojomFile) AddDeclaredConstant(declaredConst *UserDefinedConstant) {
+func (f *MojomFile) AddConstant(declaredConst *UserDefinedConstant) {
 	declaredConst.RegisterWithDescriptor(f.ModuleNamespace)
 	f.Constants = append(f.Constants, declaredConst)
 }

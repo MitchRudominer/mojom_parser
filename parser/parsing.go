@@ -22,7 +22,7 @@ import (
 // the form "parseX()" where "X" is (an altered spelling of) one of our
 // non-terminal symbols. Each of the productions below has been copied to the
 // piece of code responsible for implementing the logic associated with the
-//production.
+// production.
 //
 // Key:
 // Upper case means non-terminals.
@@ -50,7 +50,7 @@ import (
 // ATTR_INTRFC_ELEMENT  -> [ATTRIBUTES] INTRFC_ELEMENT
 // INTRFC_ELEMENT       -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
 
-// METHOD_DECL          -> name [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
+// METHOD_DECL          -> name [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen] semi
 // PARAM_LIST           -> PARAM_DECL {, PARAM_DECL}
 // PARAM_DECL           -> [ATTRIBUTES] TYPE NAME [ORDINAL]
 
@@ -63,50 +63,67 @@ import (
 // DEFAULT_VALUE        -> CONSTANT_VALUE | ENUM_VALUE_IDENTIFIER | default
 
 ////////////////////////////////////////////////////////////////////////////
-// ParseX() methods follow.
+// parseX() methods follow.
 ////////////////////////////////////////////////////////////////////////////
+
+// Note about the input and output of the parseX() methods: The method
+// Parser.OK() indicates whether or not there has been a parsing error.
+// All of the methods start with the check:
+//	if !p.OK()
+//		return
+//	}
+// and sometimes perform this check midway through their logic too. To make
+// this more concise some of the methods return the value of Parser.OK() so that
+// a caller can check the value without an additional 'if' clause. If a parseX()
+// method has no other value it needs to return it always returns the value of
+// Parser.OK().
+//
+// Many of the methods construct a Mojom object and return it. For example
+// parseInterfaceDecl() returns a MojomInterface. If the method is responsible
+// for parsing a block containing arbitrarily many elements then instead the
+// method is passed a container that it fills up. For example
+// parseInterfaceBody() is passed a MojomInterface that it fills up and it
+// returns the bool Parser.OK(). If a Mojom object can take optional attributes
+// then the attributes are parsed first via parseAttributes() and then the
+// attributes are passed into the method that parses the object. For example
+// parseInterfaceDecl() takes the parameter attributes *mojom.Attributes.
 
 // ATTR_MOJOM_FILE  -> [ATTRIBUTES] MOJOM_FILE
 // MOJOM_FILE       -> MODULE_DECL {IMPORT_STMNT} {ATTR_MOJOM_DECL}
 // MOJOM_FILE       -> IMPORT_STMNT {IMPORT_STMNT} {ATTR_MOJOM_DECL}
 // MOJOM_FILE       -> MOJOM_DECL {ATTR_MOJOM_DECL}
+//
+// Returns Parser.OK()
 func (p *Parser) parseMojomFile() bool {
-	if p.Error() {
+	if !p.OK() {
 		return false
 	}
 	p.pushRootNode("MojomFile")
 	defer p.popNode()
 
 	initialAttributes := p.parseAttributes()
-	if p.Error() {
-		return false
-	}
 
-	moduleDeclExists := p.parseModuleDecl(initialAttributes)
-	if p.Error() {
-		return false
-	}
+	moduleIdentifier := p.parseModuleDecl()
 
-	if moduleDeclExists {
-		// If there were initial attributes and a module declaration then the
-		// attributes belong to the module declaration and have already
-		// been consumed, so we don't need to hold on to them.
+	if p.OK() && len(moduleIdentifier) > 0 {
+		p.mojomFile.ModuleNamespace = moduleIdentifier
+		p.mojomFile.Attributes = initialAttributes
 		initialAttributes = nil
 	}
 
 	importStatementsExist := p.parseImportStatements()
-	if p.Error() {
+	if !p.OK() {
 		return false
 	}
 
-	if !moduleDeclExists && importStatementsExist && initialAttributes != nil {
+	if len(moduleIdentifier) > 0 && importStatementsExist && initialAttributes != nil {
 		message := "Attributes are not allowed before an import statement."
 		p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
 		return false
 	}
 
 	attributes := p.parseAttributes()
-	if p.Error() {
+	if !p.OK() {
 		return false
 	}
 	if initialAttributes != nil {
@@ -122,7 +139,7 @@ func (p *Parser) parseMojomFile() bool {
 	// ATTR_MOJOM_DECL  -> [ATTRIBUTES] MOJOM_DECL
 	// MOJOM_DECL       -> INTRFC_DECL | STRUCT_DECL | UNION_DECL | ENUM_DECL | CONSTANT_DECL
 	for ; ; attributes = p.parseAttributes() {
-		if p.Error() {
+		if !p.OK() {
 			return false
 		}
 		if p.checkEOF() {
@@ -135,21 +152,15 @@ func (p *Parser) parseMojomFile() bool {
 		nextToken := p.lastPeek
 		switch nextToken.Kind {
 		case lexer.INTERFACE:
-			mojomInterface := p.parseInterfaceDecl(attributes)
-			if p.OK() {
-				p.mojomFile.AddInterface(mojomInterface)
-			}
+			p.mojomFile.AddInterface(p.parseInterfaceDecl(attributes))
 		case lexer.STRUCT:
-			mojomStruct := p.parseStructDecl(attributes)
-			if p.OK() {
-				p.mojomFile.AddStruct(mojomStruct)
-			}
+			p.mojomFile.AddStruct(p.parseStructDecl(attributes))
 		case lexer.UNION:
-			p.parseUnionDecl(attributes)
+			p.mojomFile.AddUnion(p.parseUnionDecl(attributes))
 		case lexer.ENUM:
-			p.parseEnumDecl(attributes)
+			p.mojomFile.AddEnum(p.parseEnumDecl(attributes))
 		case lexer.CONST:
-			p.parseConstDecl(attributes)
+			p.mojomFile.AddConstant(p.parseConstDecl(attributes))
 		default:
 			message := fmt.Sprintf("Unexpected token at %s: %s. "+
 				"Expecting interface, struct, union, enum or const.",
@@ -164,7 +175,7 @@ func (p *Parser) parseMojomFile() bool {
 // ATTRIBUTES      -> lbracket ATTR_ASSIGNMENT { comma, ATTR_ASSIGNMENT}
 // ATTR_ASSIGNMENT -> name equals name | name equals string_literal
 func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 
@@ -181,20 +192,20 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 	nextToken := p.lastPeek
 	for nextToken.Kind != lexer.RBRACKET {
 		key := p.readName()
-		if p.Error() {
+		if !p.OK() {
 			return
 		}
 		if !p.match(lexer.EQUALS) {
 			return
 		}
 		value := p.readName()
-		if p.Error() {
+		if !p.OK() {
 			return
 		}
 		attributes.List = append(attributes.List, mojom.MojomAttribute{key, value})
 
 		nextToken = p.peekNextToken("I was reading an attributes section.")
-		if p.Error() {
+		if !p.OK() {
 			return
 		}
 		p.consumeNextToken()
@@ -218,18 +229,20 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 }
 
 //MODULE_DECL -> module identifier semi
-func (p *Parser) parseModuleDecl(attributes *mojom.Attributes) (moduleDeclExists bool) {
-	if p.Error() {
+//
+// If there is a module declaration then the identifier is returned. Otherwise
+// the empty string is returned. Check p.OK() for errors.
+func (p *Parser) parseModuleDecl() (moduleIdentifier string) {
+	if !p.OK() {
 		return
 	}
 	nextToken := p.peekNextToken("No Mojom declarations found.")
 	switch nextToken.Kind {
 	case lexer.MODULE:
-		moduleDeclExists = true
-		p.consumeNextToken() // consume the MODULE token.
+		p.consumeNextToken() // Consume the MODULE token.
 		break
 	case lexer.IMPORT, lexer.INTERFACE, lexer.STRUCT, lexer.UNION, lexer.ENUM, lexer.CONST:
-		return
+		return // There is no module declaration.
 	default:
 		message := fmt.Sprintf("Unexpected token at %s: %s. "+
 			"Expecting module, import, interface, struct, union, enum or constant.",
@@ -241,22 +254,14 @@ func (p *Parser) parseModuleDecl(attributes *mojom.Attributes) (moduleDeclExists
 	p.pushChildNode("moduleDecl")
 	defer p.popNode()
 
-	identifier := p.readIdentifier()
-	if p.Error() {
-		return
-	}
-	if !p.matchSemicolon() {
-		return
-	}
-
-	p.mojomFile.ModuleNamespace = identifier
-	p.mojomFile.Attributes = attributes
+	moduleIdentifier = p.readIdentifier()
+	p.matchSemicolon()
 	return
 }
 
 // IMPORT_STMNT  -> import string_literal
 func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 
@@ -267,7 +272,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 		p.consumeNextToken() // consume the IMPORT token.
 
 		fileName := p.readStringLiteral()
-		if p.Error() {
+		if !p.OK() {
 			return
 		}
 
@@ -278,7 +283,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 
 		nextToken = p.peekNextToken("No Mojom declarations found.")
 		p.popNode()
-		if p.Error() {
+		if !p.OK() {
 			return
 		}
 	}
@@ -297,12 +302,11 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
 		return
 	}
-
 }
 
 // INTRFC_DECL  -> interface name lbrace INTRFC_BODY rbrace semi
 func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterface *mojom.MojomInterface) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	p.pushChildNode("interfaceDecl")
@@ -313,7 +317,7 @@ func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterfac
 	}
 
 	simpleName := p.readName()
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 
@@ -340,7 +344,7 @@ func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterfac
 // ATTR_INTRFC_ELEMENT  -> [ATTRIBUTES] INTRFC_ELEMENT
 // INTRFC_ELEMENT       -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
 func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
-	if p.Error() {
+	if !p.OK() {
 		return p.OK()
 	}
 	p.pushChildNode("interfaceBody")
@@ -348,26 +352,17 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 
 	rbraceFound := false
 	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
-		if p.Error() {
+		if !p.OK() {
 			return false
 		}
 		nextToken := p.peekNextToken("I was parsing an interface body.")
 		switch nextToken.Kind {
 		case lexer.NAME:
-			method := p.parseMethodDecl(attributes)
-			if p.OK() {
-				mojomInterface.AddMethod(method)
-			}
+			mojomInterface.AddMethod(p.parseMethodDecl(attributes))
 		case lexer.ENUM:
-			enum := p.parseEnumDecl(attributes)
-			if p.OK() {
-				mojomInterface.AddEnum(enum)
-			}
+			mojomInterface.AddEnum(p.parseEnumDecl(attributes))
 		case lexer.CONST:
-			declaredConst := p.parseConstDecl(attributes)
-			if p.OK() {
-				mojomInterface.AddDeclaredConstant(declaredConst)
-			}
+			mojomInterface.AddConstant(p.parseConstDecl(attributes))
 		case lexer.RBRACE:
 			rbraceFound = true
 			if attributes != nil {
@@ -391,25 +386,25 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 
 // METHOD_DECL -> name [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
 func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMethod {
-	if p.Error() {
+	if !p.OK() {
 		return nil
 	}
 	p.pushChildNode("methodDecl")
 	defer p.popNode()
 
 	methodName := p.readName()
-	if p.Error() {
+	if !p.OK() {
 		return nil
 	}
 
-	ordinalValue := -p.parserOrdinal()
+	ordinalValue := p.parseOrdinal()
 
 	if !p.match(lexer.LPAREN) {
 		return nil
 	}
 
 	params := p.parseParamList()
-	if p.Error() {
+	if !p.OK() {
 		return nil
 	}
 
@@ -426,7 +421,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 		}
 
 		responseParams = p.parseParamList()
-		if p.Error() {
+		if !p.OK() {
 			return nil
 		}
 
@@ -446,8 +441,11 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 
 // PARAM_LIST -> PARAM_DECL {, PARAM_DECL}
 // PARAM_DECL -> [ATTRIBUTES] TYPE name [ORDINAL]
+//
+// Returns a MojomStruct containing the list of parameters. This may
+// be nil in case of an early error. Check Parser.OK().
 func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
-	if p.Error() {
+	if !p.OK() {
 		return nil
 	}
 	p.pushChildNode("paramList")
@@ -460,8 +458,8 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 		attributes := p.parseAttributes()
 		fieldType := p.readType()
 		name := p.readName()
-		ordinalValue := p.parserOrdinal()
-		if p.Error() {
+		ordinalValue := p.parseOrdinal()
+		if !p.OK() {
 			return
 		}
 
@@ -486,7 +484,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 
 // STRUCT_DECL   -> struct name lbrace STRUCT_BODY rbrace semi
 func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *mojom.MojomStruct) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	p.pushChildNode("structDecl")
@@ -497,7 +495,7 @@ func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *moj
 	}
 
 	simpleName := p.readName()
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	mojomStruct = mojom.NewMojomStruct(simpleName, attributes,
@@ -524,7 +522,7 @@ func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *moj
 // ATTR_STRUCT_ELEMENT  -> [ATTRIBUTES] STRUCT_ELEMENT
 // STRUCT_ELEMENT       -> STRUCT_FIELD | ENUM_DECL | CONSTANT_DECL
 func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
-	if p.Error() {
+	if !p.OK() {
 		return p.OK()
 	}
 	p.pushChildNode("structBody")
@@ -532,26 +530,17 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 
 	rbraceFound := false
 	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
-		if p.Error() {
+		if !p.OK() {
 			return false
 		}
 		nextToken := p.peekNextToken("I was parsing a struct body.")
 		switch nextToken.Kind {
 		case lexer.NAME:
-			field := p.parseStructField(attributes)
-			if p.OK() {
-				mojomStruct.AddField(field)
-			}
+			mojomStruct.AddField(p.parseStructField(attributes))
 		case lexer.ENUM:
-			enum := p.parseEnumDecl(attributes)
-			if p.OK() {
-				mojomStruct.AddEnum(enum)
-			}
+			mojomStruct.AddEnum(p.parseEnumDecl(attributes))
 		case lexer.CONST:
-			declaredConst := p.parseConstDecl(attributes)
-			if p.OK() {
-				mojomStruct.AddDeclaredConstant(declaredConst)
-			}
+			mojomStruct.AddConstant(p.parseConstDecl(attributes))
 		case lexer.RBRACE:
 			rbraceFound = true
 			if attributes != nil {
@@ -575,7 +564,7 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 
 // STRUCT_FIELD -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
 func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField mojom.StructField) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	p.pushChildNode("structField")
@@ -583,7 +572,7 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 
 	fieldType := p.readType()
 	fieldName := p.readName()
-	ordinalValue := p.parserOrdinal()
+	ordinalValue := p.parseOrdinal()
 	if !p.matchSemicolon() {
 		return
 	}
@@ -594,7 +583,7 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 }
 
 func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.MojomUnion) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	// TODO
@@ -602,7 +591,7 @@ func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.Mojo
 }
 
 func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomEnum) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	// TODO
@@ -610,15 +599,15 @@ func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomE
 }
 
 func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.UserDefinedConstant) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	// TODO
 	return
 }
 
-func (p *Parser) parserOrdinal() (ordinalValue int) {
-	if p.Error() {
+func (p *Parser) parseOrdinal() (ordinalValue int) {
+	if !p.OK() {
 		return
 	}
 	ordinalValue = -1
@@ -668,12 +657,12 @@ func (p *Parser) consumeNextToken() bool {
 }
 
 func (p *Parser) match(expectedKind lexer.TokenKind) bool {
-	if p.Error() {
+	if !p.OK() {
 		return false
 	}
 	message := fmt.Sprintf("I was expecting to find %s next.", expectedKind)
 	nextToken := p.peekNextToken(message)
-	if p.Error() {
+	if !p.OK() {
 		return false
 	}
 	if nextToken.Kind != expectedKind {
@@ -690,7 +679,7 @@ func (p *Parser) tryMatch(expectedKind lexer.TokenKind) bool {
 	if p.checkEOF() {
 		return false
 	}
-	if p.Error() {
+	if !p.OK() {
 		return false
 	}
 	nextToken := p.lastPeek
@@ -716,7 +705,7 @@ func (p *Parser) matchSemicolon() bool {
 }
 
 func (p *Parser) readText(kind lexer.TokenKind) (text string) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 
@@ -735,7 +724,7 @@ func (p *Parser) readName() (name string) {
 }
 
 func (p *Parser) readIdentifier() (identifier string) {
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	firstToken := p.peekNextToken("Expecting an identifier.")
@@ -762,7 +751,7 @@ func (p *Parser) readIdentifier() (identifier string) {
 func (p *Parser) readType() (mojomType mojom.Type) {
 	//typeName := p.readName()
 	p.readName()
-	if p.Error() {
+	if !p.OK() {
 		return
 	}
 	return mojom.INT64

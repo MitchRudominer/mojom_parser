@@ -72,6 +72,7 @@ func (b *UserDefinedTypeBase) RegisterWithDescriptor(namespace string) {
 func (b UserDefinedTypeBase) String() string {
 	s := fmt.Sprintf("fullyQualifiedName: %s\n", b.fullyQualifiedName)
 	s += fmt.Sprintf("typeKey: %s\n", b.typeKey)
+	s += fmt.Sprintf("%s", b.declarationData)
 	return s
 }
 
@@ -102,7 +103,7 @@ func (b UserDefinedTypeBase) AddEnum(mojomEnum *MojomEnum) {
 }
 
 // Adds a declared constant to a this type, which must be an interface or struct.
-func (b UserDefinedTypeBase) AddDeclaredConstant(declaredConst *UserDefinedConstant) {
+func (b UserDefinedTypeBase) AddConstant(declaredConst *UserDefinedConstant) {
 	if !b.thisType.SupportsContainedDeclarations() {
 		panic(fmt.Sprintf("Type %v does not support contained declarations.", b.thisType))
 	}
@@ -146,6 +147,17 @@ func (s *MojomStruct) ComputeFieldOrdinals() {
 	// TODO
 }
 
+func (m MojomStruct) String() string {
+	s := fmt.Sprintf("\n---------struct--------------\n")
+	s += fmt.Sprintf("%s", m.UserDefinedTypeBase)
+	s += "     Fields\n"
+	s += "     ------\n"
+	for _, field := range m.fields {
+		s += fmt.Sprintf("     %s\n", field)
+	}
+	return s
+}
+
 // A debug string representing this struct in the case that this struct
 // is being used to represent the parameters to a method.
 func (s MojomStruct) ParameterString() string {
@@ -181,6 +193,10 @@ func BuildStructField(fieldType Type, name string,
 	field = StructField{fieldType: fieldType, defaultValue: defaultValue}
 	field.InitValueDeclarationData(name, attributes, ordinal)
 	return
+}
+
+func (f StructField) String() string {
+	return fmt.Sprintf("%s %s", f.fieldType, f.SimpleName)
 }
 
 // TODO(rudominer) Do something with this.
@@ -376,6 +392,17 @@ type TypeDeclarationData struct {
 	ContainedDeclarations *ContainedDeclarations
 }
 
+func (t *TypeDeclarationData) String() string {
+	s := ""
+	if t.Attributes != nil {
+		s = fmt.Sprintf("\n%s", t.Attributes)
+	}
+	if t.ContainedDeclarations != nil {
+		s += fmt.Sprintf("\n%s", t.ContainedDeclarations)
+	}
+	return s
+}
+
 func NewTypeDeclarationData(simpleName string, attributes *Attributes) *TypeDeclarationData {
 	declarationData := new(TypeDeclarationData)
 	declarationData.SimpleName = simpleName
@@ -393,9 +420,7 @@ func (v *ValueDeclarationData) InitValueDeclarationData(simpleName string,
 	attributes *Attributes, ordinal int) {
 	v.SimpleName = simpleName
 	v.Attributes = attributes
-	if ordinal >= 0 {
-		v.DeclaredOrdinal = ordinal
-	}
+	v.DeclaredOrdinal = ordinal
 }
 
 type Attributes struct {
