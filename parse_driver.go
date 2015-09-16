@@ -44,8 +44,8 @@ func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
 			}
 			mojomFile := parser.GetMojomFile()
 			for _, importedFile := range mojomFile.Imports {
-				if !d.descriptor.ContainsFile(importedFile.FileName) {
-					d.fileNamesToBeParsed = append(d.fileNamesToBeParsed, importedFile.FileName)
+				if !d.descriptor.ContainsFile(importedFile) {
+					d.fileNamesToBeParsed = append(d.fileNamesToBeParsed, importedFile)
 				}
 			}
 

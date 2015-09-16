@@ -6,39 +6,9 @@ import (
 	"github.com/rudominer/mojom_parser/mojom"
 )
 
-// Error codes
-type errorCode int
-
-const (
-	// No error
-	E_OK errorCode = iota
-
-	// Unexpected end-of-file
-	E_EOF
-
-	E_UNEXPECTED_TOKEN
-
-	// After what appears to be a complete mojom file there were extra tokens.
-	E_EXTRANEOUS_TOKEN
-
-	// A simple name was expected but an identifier contained a dot.
-	E_EXPECTED_SIMPLE_NAME
-
-	// An attributes section appeared in a location it is not allowed.
-	E_BAD_ATTRIBUTE_LOCATION
-
-	E_MISSING_SEMI_COLON
-)
-
-type parserError struct {
-	code    errorCode
-	message string
-}
-
-// Make parserError implement the error interface.
-func (e parserError) Error() string {
-	return e.message
-}
+///////////////////////////////////////////////////////////////////////
+/// Type Parser
+/// //////////////////////////////////////////////////////////////////
 
 // Type Parser
 type Parser struct {
@@ -83,6 +53,19 @@ func NewParser(fileName, fileContents string,
 	return parser
 }
 
+func (p *Parser) Parse() {
+	// Our start symbol is ATTR_MOJOM_FILE
+	p.parseMojomFile()
+
+	// Check if there are any extraneous tokens left in the stream.
+	if p.OK() && !p.checkEOF() {
+		token := p.lastPeek
+		message := fmt.Sprintf("Extraneous token at %s: %v.",
+			token.LocationString(), token)
+		p.err = parserError{E_EXTRANEOUS_TOKEN, message}
+	}
+}
+
 func ParserForDebugging(fileContents string) Parser {
 	parser := NewParser("fakeModule", fileContents, mojom.NewMojomDescriptor())
 	parser.debugMode = true
@@ -124,15 +107,36 @@ func (p *Parser) Eof() bool {
 	return p.err.code == E_EOF
 }
 
-func (p *Parser) Parse() {
-	// Our start symbol is ATTR_MOJOM_FILE
-	p.parseMojomFile()
+//////////// Error codes //////////
+type errorCode int
 
-	// Check if there are any extraneous tokens left in the stream.
-	if p.OK() && !p.checkEOF() {
-		token := p.lastPeek
-		message := fmt.Sprintf("Extraneous token at %s: %v.",
-			token.LocationString(), token)
-		p.err = parserError{E_EXTRANEOUS_TOKEN, message}
-	}
+const (
+	// No error
+	E_OK errorCode = iota
+
+	// Unexpected end-of-file
+	E_EOF
+
+	E_UNEXPECTED_TOKEN
+
+	// After what appears to be a complete mojom file there were extra tokens.
+	E_EXTRANEOUS_TOKEN
+
+	// A simple name was expected but an identifier contained a dot.
+	E_EXPECTED_SIMPLE_NAME
+
+	// An attributes section appeared in a location it is not allowed.
+	E_BAD_ATTRIBUTE_LOCATION
+
+	E_MISSING_SEMI_COLON
+)
+
+type parserError struct {
+	code    errorCode
+	message string
+}
+
+// Make parserError implement the error interface.
+func (e parserError) Error() string {
+	return e.message
 }

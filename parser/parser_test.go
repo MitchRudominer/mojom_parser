@@ -15,6 +15,11 @@ func buildTestFileContents() string {
 	interface baz{
 	    DoIt(int64  x@4) => (int64 y, int64 z);
 	};
+
+	struct MyStruct {
+		int64 apple;
+		int64 ball;
+	};
 	`
 	return contents
 }

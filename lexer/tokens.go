@@ -110,6 +110,8 @@ func (tokenKind TokenKind) String() string {
 		return "'interface'"
 	case MODULE:
 		return "'module'"
+	case STRUCT:
+		return "'struct'"
 
 	// Constants
 	case ORDINAL:

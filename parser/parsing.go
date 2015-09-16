@@ -58,6 +58,9 @@ import (
 // STRUCT_BODY          -> {ATTR_STRUCT_ELEMENT}
 // ATTR_STRUCT_ELEMENT  -> [ATTRIBUTES] STRUCT_ELEMENT
 // STRUCT_ELEMENT       -> STRUCT_FIELD | ENUM_DECL | CONSTANT_DECL
+// STRUCT_FIELD         -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
+
+// DEFAULT_VALUE        -> CONSTANT_VALUE | ENUM_VALUE_IDENTIFIER | default
 
 ////////////////////////////////////////////////////////////////////////////
 // ParseX() methods follow.
@@ -216,7 +219,6 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 
 //MODULE_DECL -> module identifier semi
 func (p *Parser) parseModuleDecl(attributes *mojom.Attributes) (moduleDeclExists bool) {
-	moduleDeclExists = false
 	if p.Error() {
 		return
 	}
@@ -254,7 +256,6 @@ func (p *Parser) parseModuleDecl(attributes *mojom.Attributes) (moduleDeclExists
 
 // IMPORT_STMNT  -> import string_literal
 func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
-	atLeastOneImport = false
 	if p.Error() {
 		return
 	}
@@ -360,12 +361,12 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 		case lexer.ENUM:
 			enum := p.parseEnumDecl(attributes)
 			if p.OK() {
-				mojom.AddEnum(mojomInterface, enum)
+				mojomInterface.AddEnum(enum)
 			}
 		case lexer.CONST:
 			declaredConst := p.parseConstDecl(attributes)
 			if p.OK() {
-				mojom.AddDeclaredConstant(mojomInterface, declaredConst)
+				mojomInterface.AddDeclaredConstant(declaredConst)
 			}
 		case lexer.RBRACE:
 			rbraceFound = true
@@ -446,28 +447,23 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 // PARAM_LIST -> PARAM_DECL {, PARAM_DECL}
 // PARAM_DECL -> [ATTRIBUTES] TYPE name [ORDINAL]
 func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
+	if p.Error() {
+		return nil
+	}
 	p.pushChildNode("paramList")
 	defer p.popNode()
 
 	paramStruct = mojom.NewMojomStruct("ParamStruct", nil, nil, nil)
 	nextToken := p.peekNextToken("I was parsing method parameters.")
 	for nextToken.Kind != lexer.RPAREN {
-		if p.Error() {
-			return
-		}
+
 		attributes := p.parseAttributes()
-		if p.Error() {
-			return
-		}
-		fieldType := p.parseType()
-		if p.Error() {
-			return
-		}
+		fieldType := p.readType()
 		name := p.readName()
+		ordinalValue := p.parserOrdinal()
 		if p.Error() {
 			return
 		}
-		ordinalValue := p.parserOrdinal()
 
 		paramStruct.AddField(mojom.BuildStructField(fieldType, name, ordinalValue, attributes, nil))
 
@@ -504,7 +500,6 @@ func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *moj
 	if p.Error() {
 		return
 	}
-
 	mojomStruct = mojom.NewMojomStruct(simpleName, attributes,
 		p.mojomFile, p.mojomDescriptor)
 
@@ -550,12 +545,12 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 		case lexer.ENUM:
 			enum := p.parseEnumDecl(attributes)
 			if p.OK() {
-				mojom.AddEnum(mojomStruct, enum)
+				mojomStruct.AddEnum(enum)
 			}
 		case lexer.CONST:
 			declaredConst := p.parseConstDecl(attributes)
 			if p.OK() {
-				mojom.AddDeclaredConstant(mojomStruct, declaredConst)
+				mojomStruct.AddDeclaredConstant(declaredConst)
 			}
 		case lexer.RBRACE:
 			rbraceFound = true
@@ -578,9 +573,24 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 	return p.OK()
 }
 
+// STRUCT_FIELD -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
 func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField mojom.StructField) {
+	if p.Error() {
+		return
+	}
+	p.pushChildNode("structField")
+	defer p.popNode()
+
+	fieldType := p.readType()
+	fieldName := p.readName()
+	ordinalValue := p.parserOrdinal()
+	if !p.matchSemicolon() {
+		return
+	}
+
+	structField = mojom.BuildStructField(fieldType, fieldName, ordinalValue, attributes, nil)
+
 	return
-	//TODO
 }
 
 func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.MojomUnion) {
@@ -607,12 +617,10 @@ func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.U
 	return
 }
 
-func (p *Parser) parseType() (mojomType mojom.Type) {
-	p.consumeNextToken()
-	return mojom.INT64
-}
-
 func (p *Parser) parserOrdinal() (ordinalValue int) {
+	if p.Error() {
+		return
+	}
 	ordinalValue = -1
 	if p.tryMatch(lexer.ORDINAL) {
 		x, err := strconv.Atoi(p.lastPeek.Text[1:])
@@ -749,6 +757,15 @@ func (p *Parser) readIdentifier() (identifier string) {
 		identifier, firstToken.LocationString())
 	p.err = parserError{E_UNEXPECTED_TOKEN, message}
 	return
+}
+
+func (p *Parser) readType() (mojomType mojom.Type) {
+	//typeName := p.readName()
+	p.readName()
+	if p.Error() {
+		return
+	}
+	return mojom.INT64
 }
 
 ////////////////// Parse Tree /////////////////////
