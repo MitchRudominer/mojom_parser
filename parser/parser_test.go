@@ -18,11 +18,16 @@ func buildTestFileContents() string {
 
 	struct MyStruct {
 		int64 apple;
-		int64 ball;
+		int32 ball;
 	};
 
 	struct MyOtherStruct {
-		int64 bat;
+		bool bat;
+		string s1;
+		string? s1;
+		handle<message_pipe> h1;
+		handle h2;
+		handle<message_pipe>? h3
 		MyStruct aStruct;
 	};
 	`

@@ -30,6 +30,58 @@ type Type interface {
 }
 
 /////////////////////////////////////////////////////////////
+// The built-in types are defined to be those with a statically
+// defined identifier. These are the simple types, string,
+// the handle types and their nullable variants.
+/////////////////////////////////////////////////////////////
+
+var allBuiltInTypes []Type
+var BuiltInTypeMap map[string]Type
+
+// Initialize allBuiltInTypes and BuiltInTypeMap
+func init() {
+	allBuiltInTypes = make([]Type, len(allSimpleTypes)+12)
+	// Add the simple types
+	for i, t := range allSimpleTypes {
+		allBuiltInTypes[i] = t
+	}
+
+	// Add the string types
+	i := len(allSimpleTypes)
+	allBuiltInTypes[i] = StringType{false}
+	i++
+	allBuiltInTypes[i] = StringType{true}
+	i++
+
+	// Add the handle types
+	allBuiltInTypes[i] = HandleType{false, H_UNSPECIFIED}
+	i++
+	allBuiltInTypes[i] = HandleType{true, H_UNSPECIFIED}
+	i++
+	allBuiltInTypes[i] = HandleType{false, H_MESSAGE_PIPE}
+	i++
+	allBuiltInTypes[i] = HandleType{true, H_MESSAGE_PIPE}
+	i++
+	allBuiltInTypes[i] = HandleType{false, H_DATA_PIPE_CONSUMER}
+	i++
+	allBuiltInTypes[i] = HandleType{true, H_DATA_PIPE_CONSUMER}
+	i++
+	allBuiltInTypes[i] = HandleType{false, H_DATA_PIPE_PRODUCER}
+	i++
+	allBuiltInTypes[i] = HandleType{true, H_DATA_PIPE_PRODUCER}
+	i++
+	allBuiltInTypes[i] = HandleType{false, H_SHARED_BUFFER}
+	i++
+	allBuiltInTypes[i] = HandleType{true, H_SHARED_BUFFER}
+
+	// Construct BuiltInTypeMap
+	BuiltInTypeMap = make(map[string]Type, len(allBuiltInTypes))
+	for _, t := range allBuiltInTypes {
+		BuiltInTypeMap[t.String()] = t
+	}
+}
+
+/////////////////////////////////////////////////////////////
 // SimpleType
 /////////////////////////////////////////////////////////////
 type SimpleType int
@@ -48,7 +100,7 @@ const (
 	UINT64
 )
 
-var AllSimpleTypes = []SimpleType{BOOL, DOUBLE}
+var allSimpleTypes = []SimpleType{BOOL, DOUBLE, FLOAT, INT8, INT16, INT32, INT64, UINT8, UINT16, UINT32, UINT64}
 
 func (SimpleType) Kind() TypeKind {
 	return SIMPLE_TYPE
@@ -262,8 +314,29 @@ func (h HandleType) Identical(other Type) bool {
 	return h.kind == otherHandleType.kind
 }
 
+const HANDLE_PREFIX = "handle"
+
 func (h HandleType) String() string {
-	return "TODO(rudominer)"
+	suffix := ""
+	switch h.kind {
+	case H_UNSPECIFIED:
+		break
+	case H_MESSAGE_PIPE:
+		suffix = "<message_pipe>"
+	case H_DATA_PIPE_CONSUMER:
+		suffix = "<data_pipe_consumer>"
+	case H_DATA_PIPE_PRODUCER:
+		suffix = "<data_pipe_producer>"
+	case H_SHARED_BUFFER:
+		suffix = "<shared_buffer>"
+	default:
+		panic(fmt.Sprintf("Unrecognized handle kind %d", h.kind))
+	}
+	nullable := ""
+	if h.nullable {
+		nullable = "?"
+	}
+	return fmt.Sprintf("%s%s%s", HANDLE_PREFIX, suffix, nullable)
 }
 
 /////////////////////////////////////////////////////////////
@@ -331,10 +404,6 @@ func (t TypeReference) Identical(other Type) bool {
 func (t TypeReference) String() string {
 	return "TODO(rudominer)"
 }
-
-/////////////////////////////////////////////////////////////
-// Parsing
-/////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////
 // Constant Occurrence

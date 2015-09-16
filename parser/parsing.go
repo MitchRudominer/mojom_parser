@@ -457,6 +457,9 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 
 		attributes := p.parseAttributes()
 		fieldType := p.readType()
+		if !p.OK() {
+			return
+		}
 		name := p.readName()
 		ordinalValue := p.parseOrdinal()
 		if !p.OK() {
@@ -691,6 +694,9 @@ func (p *Parser) tryMatch(expectedKind lexer.TokenKind) bool {
 }
 
 func (p *Parser) matchSemicolonToken(previousToken lexer.Token) bool {
+	if !p.OK() {
+		return false
+	}
 	if p.match(lexer.SEMI) {
 		return true
 	}
@@ -748,16 +754,39 @@ func (p *Parser) readIdentifier() (identifier string) {
 	return
 }
 
-func (p *Parser) readType() (mojomType mojom.Type) {
-	//typeName := p.readName()
-	p.readName()
-	if !p.OK() {
-		return
+func (p *Parser) readType() mojom.Type {
+	typeName := p.readName()
+	firstToken := p.lastPeek
+	if typeName == mojom.HANDLE_PREFIX {
+		if p.tryMatch(lexer.LANGLE) {
+			handleType := p.readName()
+			if !p.OK() {
+				message := fmt.Sprintf("Unexpected token at %s: %s. Expecting a type of handle.",
+					p.lastPeek.LocationString(), p.lastPeek)
+				p.err = parserError{E_UNEXPECTED_TOKEN, message}
+				return nil
+			}
+			if p.match(lexer.RANGLE) {
+				typeName = fmt.Sprintf("%s<%s>", typeName, handleType)
+				if _, ok := mojom.BuiltInTypeMap[typeName]; !ok {
+					message := fmt.Sprintf("Unrecognized type of handle at %s: %s.",
+						firstToken.LocationString(), typeName)
+					p.err = parserError{E_UNEXPECTED_TOKEN, message}
+					return nil
+				}
+			}
+		}
+		if !p.OK() {
+			return nil
+		}
 	}
-	return mojom.INT64
-}
-
-type TypeParser interface {
+	if p.tryMatch(lexer.QSTN) {
+		typeName += "?"
+	}
+	if t, ok := mojom.BuiltInTypeMap[typeName]; ok {
+		return t
+	}
+	return nil
 }
 
 ////////////////// Parse Tree /////////////////////
