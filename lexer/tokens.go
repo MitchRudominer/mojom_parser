@@ -94,6 +94,8 @@ func (tokenKind TokenKind) String() string {
 		return "';'"
 	case COMMA:
 		return "','"
+	case DOT:
+		return "'.'"
 	case EQUALS:
 		return "'='"
 

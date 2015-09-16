@@ -15,14 +15,14 @@ import (
 // Specification", but it has been modified in order to make it LL(1). This
 // is necessary in order to be able to use it to do predictive top-down
 // parsing. (See Section 4.4.3 of "Compilers: Principles, Techniques and Tools"
-// 2nd Edition, by Aho et al.")
+// 2nd Edition, by Aho et al."). This requirement explains the slight awkwardness
+// seen below regarding the handling of Mojom attributes.
 //
-// In particular we must take special care of how we handle Mojom attributes.
-// Our start symbol is ATTR_MOJOM_FILE which means a Mojom file that may start
-// with attributes. The symbol MOJOM_FILE will refer to a Mojom file that
-// does not start with attributes. Similarly an ATR_MOJOM_DECL is a Mojom
-// declaration that may start with attributes whereas as MOJOM_DECL is a Mojom
-// declaration that does not start with attributes.
+// Our recursive descent logic is implemented in the methods below with names of
+// the form "parseX()" where "X" is (an altered spelling of) one of our
+// non-terminal symbols. Each of the productions below has been copied to the
+// piece of code responsible for implementing the logic associated with the
+//production.
 //
 // Key:
 // Upper case means non-terminals.
@@ -31,23 +31,42 @@ import (
 // Braces {} means zero or more.
 // Brackets [] means zero or one.
 //
-// ATTR_MOJOM_FILE  -> ATTRIBUTES MOJOM_FILE | MOJOM_FILE
-// MOJOM_FILE       -> MODULE_DECL {IMPORT_STMNT} {MOJOM_DECL}
-// MOJOM_FILE       -> IMPORT_STMNT {IMPORT_STMNT} {MOJOM_DECL}
+// ATTR_MOJOM_FILE      -> [ATTRIBUTES] MOJOM_FILE
+// MOJOM_FILE           -> MODULE_DECL {IMPORT_STMNT} {ATTR_MOJOM_DECL}
+// MOJOM_FILE           -> IMPORT_STMNT {IMPORT_STMNT} {ATTR_MOJOM_DECL}
+// MOJOM_FILE           -> MOJOM_DECL {ATTR_MOJOM_DECL}
+
+// MODULE_DECL          -> module IDENTIFIER semi
+// IMPORT_STMNT         -> import string_literal
+
+// ATTR_MOJOM_DECL      -> [ATTRIBUTES] MOJOM_DECL
+// MOJOM_DECL           -> INTRFC_DECL | STRUCT_DECL | UNION_DECL | ENUM_DECL | CONSTANT_DECL
+
+// ATTRIBUTES           -> lbracket ATTR_ASSIGNMENT { comma, ATTR_ASSIGNMENT}
+// ATTR_ASSIGNMENT      -> name equals name | name equals string_literal
+
+// INTRFC_DECL          -> interface name lbrace INTRFC_BODY rbrace semi
+// INTRFC_BODY          -> {ATTR_INTRFC_ELEMENT}
+// ATTR_INTRFC_ELEMENT  -> [ATTRIBUTES] INTRFC_ELEMENT
+// INTRFC_ELEMENT       -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
+
+// METHOD_DECL          -> name [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
+// PARAM_LIST           -> PARAM_DECL {, PARAM_DECL}
+// PARAM_DECL           -> [ATTRIBUTES] TYPE NAME [ORDINAL]
+
+// STRUCT_DECL          -> struct name lbrace STRUCT_BODY rbrace semi
+// STRUCT_BODY          -> {ATTR_STRUCT_ELEMENT}
+// ATTR_STRUCT_ELEMENT  -> [ATTRIBUTES] STRUCT_ELEMENT
+// STRUCT_ELEMENT       -> STRUCT_FIELD | ENUM_DECL | CONSTANT_DECL
+
+////////////////////////////////////////////////////////////////////////////
+// ParseX() methods follow.
+////////////////////////////////////////////////////////////////////////////
+
+// ATTR_MOJOM_FILE  -> [ATTRIBUTES] MOJOM_FILE
+// MOJOM_FILE       -> MODULE_DECL {IMPORT_STMNT} {ATTR_MOJOM_DECL}
+// MOJOM_FILE       -> IMPORT_STMNT {IMPORT_STMNT} {ATTR_MOJOM_DECL}
 // MOJOM_FILE       -> MOJOM_DECL {ATTR_MOJOM_DECL}
-// MODULE_DECL      -> module identifier semi
-// IMPORT_STMNT     -> import string_literal
-// ATTR_MOJOM_DECL  -> ATTRIBUTES MOJOM_DECL | MOJOM_DECL
-// MOJOM_DECL       -> INTRFC_DECL | STRUCT_DECL | UNION_DECL | ENUM_DECL | CONSTANT_DECL
-// ATTRIBUTES       -> lbracket ATTR_ASSIGNMENT { comma, ATTR_ASSIGNMENT}
-// ATTR_ASSIGNMENT  -> NAME equals NAME | NAME equals LITERAL
-// INTRFC_DECL      -> interface NAME lbrace ATTR_INTRFC_BODY rbrace semi
-// ATTR_INTRFC_BODY -> ATTRIBUTES INTRFC_BODY  | INTRFC_BODY
-// INTRFC_BODY      -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
-// METHOD_DECL      -> NAME [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
-// PARAM_LIST       -> PARAM_DECL {, PARAM_DECL}
-// PARAM_DECL       -> [ATTRIBUTES]TYPE NAME [ORDINAL]
-// TYPE             ->
 func (p *Parser) parseMojomFile() bool {
 	if p.Error() {
 		return false
@@ -113,9 +132,15 @@ func (p *Parser) parseMojomFile() bool {
 		nextToken := p.lastPeek
 		switch nextToken.Kind {
 		case lexer.INTERFACE:
-			p.parseInterfaceDecl(attributes)
+			mojomInterface := p.parseInterfaceDecl(attributes)
+			if p.OK() {
+				p.mojomFile.AddInterface(mojomInterface)
+			}
 		case lexer.STRUCT:
-			p.parseStructDecl(attributes)
+			mojomStruct := p.parseStructDecl(attributes)
+			if p.OK() {
+				p.mojomFile.AddStruct(mojomStruct)
+			}
 		case lexer.UNION:
 			p.parseUnionDecl(attributes)
 		case lexer.ENUM:
@@ -133,8 +158,8 @@ func (p *Parser) parseMojomFile() bool {
 	return p.OK()
 }
 
-// ATTRIBUTES       -> lbracket ATTR_ASSIGNMENT { comma, ATTR_ASSIGNMENT}
-// ATTR_ASSIGNMENT  -> NAME equals NAME | NAME equals LITERAL
+// ATTRIBUTES      -> lbracket ATTR_ASSIGNMENT { comma, ATTR_ASSIGNMENT}
+// ATTR_ASSIGNMENT -> name equals name | name equals string_literal
 func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 	if p.Error() {
 		return
@@ -274,43 +299,45 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 
 }
 
-// INTRFC_DECL  -> interface NAME lbrace INTRFC_BODY rbrace semi
-func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) bool {
+// INTRFC_DECL  -> interface name lbrace INTRFC_BODY rbrace semi
+func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterface *mojom.MojomInterface) {
 	if p.Error() {
-		return p.OK()
+		return
 	}
 	p.pushChildNode("interfaceDecl")
 	defer p.popNode()
 
 	if !p.match(lexer.INTERFACE) {
-		return p.OK()
+		return
 	}
 
 	simpleName := p.readName()
 	if p.Error() {
-		return p.OK()
+		return
 	}
 
-	mojomInterface := p.mojomFile.AddInterface(simpleName, attributes)
+	mojomInterface = mojom.NewMojomInterface(simpleName, attributes, p.mojomFile, p.mojomDescriptor)
 
 	if !p.match(lexer.LBRACE) {
-		return p.OK()
+		return
 	}
 
 	if !p.parseInterfaceBody(mojomInterface) {
-		return p.OK()
+		return
 	}
 
 	if !p.match(lexer.RBRACE) {
-		return p.OK()
+		return
 	}
 
 	p.matchSemicolon()
-	return p.OK()
+
+	return
 }
 
-// ATTR_INTRFC_BODY -> ATTRIBUTES INTRFC_BODY  | INTRFC_BODY
-// INTRFC_BODY -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
+// INTRFC_BODY          -> {ATTR_INTRFC_ELEMENT}
+// ATTR_INTRFC_ELEMENT  -> [ATTRIBUTES] INTRFC_ELEMENT
+// INTRFC_ELEMENT       -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
 func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 	if p.Error() {
 		return p.OK()
@@ -327,14 +354,19 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 		switch nextToken.Kind {
 		case lexer.NAME:
 			method := p.parseMethodDecl(attributes)
-			attributes = nil
 			if p.OK() {
 				mojomInterface.AddMethod(method)
 			}
 		case lexer.ENUM:
-			p.parseEnumDecl(attributes)
+			enum := p.parseEnumDecl(attributes)
+			if p.OK() {
+				mojom.AddEnum(mojomInterface, enum)
+			}
 		case lexer.CONST:
-			p.parseConstDecl(attributes)
+			declaredConst := p.parseConstDecl(attributes)
+			if p.OK() {
+				mojom.AddDeclaredConstant(mojomInterface, declaredConst)
+			}
 		case lexer.RBRACE:
 			rbraceFound = true
 			if attributes != nil {
@@ -356,7 +388,7 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 	return p.OK()
 }
 
-// METHOD_DECL -> NAME [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
+// METHOD_DECL -> name [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
 func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMethod {
 	if p.Error() {
 		return nil
@@ -375,7 +407,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 		return nil
 	}
 
-	params := p.parseParams()
+	params := p.parseParamList()
 	if p.Error() {
 		return nil
 	}
@@ -392,7 +424,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 			return nil
 		}
 
-		responseParams = p.parseParams()
+		responseParams = p.parseParamList()
 		if p.Error() {
 			return nil
 		}
@@ -412,12 +444,12 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 }
 
 // PARAM_LIST -> PARAM_DECL {, PARAM_DECL}
-// PARAM_DECL -> [ATTRIBUTES] TYPE NAME [ORDINAL]
-func (p *Parser) parseParams() (paramStruct *mojom.MojomStruct) {
-	p.pushChildNode("parmList")
+// PARAM_DECL -> [ATTRIBUTES] TYPE name [ORDINAL]
+func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
+	p.pushChildNode("paramList")
 	defer p.popNode()
 
-	paramStruct = mojom.NewMojomStruct()
+	paramStruct = mojom.NewMojomStruct("ParamStruct", nil, nil, nil)
 	nextToken := p.peekNextToken("I was parsing method parameters.")
 	for nextToken.Kind != lexer.RPAREN {
 		if p.Error() {
@@ -437,7 +469,7 @@ func (p *Parser) parseParams() (paramStruct *mojom.MojomStruct) {
 		}
 		ordinalValue := p.parserOrdinal()
 
-		paramStruct.AddField(fieldType, name, ordinalValue, attributes)
+		paramStruct.AddField(mojom.BuildStructField(fieldType, name, ordinalValue, attributes, nil))
 
 		nextToken = p.peekNextToken("I was parsing method parameters.")
 		switch nextToken.Kind {
@@ -456,35 +488,123 @@ func (p *Parser) parseParams() (paramStruct *mojom.MojomStruct) {
 	return
 }
 
-func (p *Parser) parseStructDecl(attributes *mojom.Attributes) bool {
+// STRUCT_DECL   -> struct name lbrace STRUCT_BODY rbrace semi
+func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *mojom.MojomStruct) {
+	if p.Error() {
+		return
+	}
+	p.pushChildNode("structDecl")
+	defer p.popNode()
+
+	if !p.match(lexer.STRUCT) {
+		return
+	}
+
+	simpleName := p.readName()
+	if p.Error() {
+		return
+	}
+
+	mojomStruct = mojom.NewMojomStruct(simpleName, attributes,
+		p.mojomFile, p.mojomDescriptor)
+
+	if !p.match(lexer.LBRACE) {
+		return
+	}
+
+	if !p.parseStructBody(mojomStruct) {
+		return
+	}
+
+	if !p.match(lexer.RBRACE) {
+		return
+	}
+
+	p.matchSemicolon()
+
+	return
+}
+
+// STRUCT_BODY          -> {ATTR_STRUCT_ELEMENT}
+// ATTR_STRUCT_ELEMENT  -> [ATTRIBUTES] STRUCT_ELEMENT
+// STRUCT_ELEMENT       -> STRUCT_FIELD | ENUM_DECL | CONSTANT_DECL
+func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 	if p.Error() {
 		return p.OK()
+	}
+	p.pushChildNode("structBody")
+	defer p.popNode()
+
+	rbraceFound := false
+	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
+		if p.Error() {
+			return false
+		}
+		nextToken := p.peekNextToken("I was parsing a struct body.")
+		switch nextToken.Kind {
+		case lexer.NAME:
+			field := p.parseStructField(attributes)
+			if p.OK() {
+				mojomStruct.AddField(field)
+			}
+		case lexer.ENUM:
+			enum := p.parseEnumDecl(attributes)
+			if p.OK() {
+				mojom.AddEnum(mojomStruct, enum)
+			}
+		case lexer.CONST:
+			declaredConst := p.parseConstDecl(attributes)
+			if p.OK() {
+				mojom.AddDeclaredConstant(mojomStruct, declaredConst)
+			}
+		case lexer.RBRACE:
+			rbraceFound = true
+			if attributes != nil {
+				message := "Struct body ends with extranesous attributes."
+				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+			}
+			break
+		default:
+			message := fmt.Sprintf("Unexpected token within struct body at %s: %s. "+
+				"Expecting field, enum or constant declaration.",
+				nextToken.LocationString(), nextToken)
+			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return false
+		}
+	}
+	if p.OK() {
+		mojomStruct.ComputeFieldOrdinals()
 	}
 	return p.OK()
 }
 
-func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) bool {
-	if p.Error() {
-		return p.OK()
-	}
-	// TODO
-	return p.OK()
+func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField mojom.StructField) {
+	return
+	//TODO
 }
 
-func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) bool {
+func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.MojomUnion) {
 	if p.Error() {
-		return p.OK()
+		return
 	}
 	// TODO
-	return p.OK()
+	return
 }
 
-func (p *Parser) parseConstDecl(attributes *mojom.Attributes) bool {
+func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomEnum) {
 	if p.Error() {
-		return p.OK()
+		return
 	}
 	// TODO
-	return p.OK()
+	return
+}
+
+func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.UserDefinedConstant) {
+	if p.Error() {
+		return
+	}
+	// TODO
+	return
 }
 
 func (p *Parser) parseType() (mojomType mojom.Type) {
@@ -602,18 +722,32 @@ func (p *Parser) readStringLiteral() (literal string) {
 	return p.readText(lexer.STRING_LITERAL)
 }
 
-func (p *Parser) readIdentifier() (identifier string) {
+func (p *Parser) readName() (name string) {
 	return p.readText(lexer.NAME)
 }
 
-func (p *Parser) readName() (name string) {
-	if name = p.readIdentifier(); p.Error() {
+func (p *Parser) readIdentifier() (identifier string) {
+	if p.Error() {
 		return
 	}
-	if strings.Contains(name, ".") {
-		p.err = parserError{E_EXPECTED_SIMPLE_NAME,
-			fmt.Sprintf("Dots are not allowed in a simple name: %s.", name)}
+	firstToken := p.peekNextToken("Expecting an identifier.")
+	if firstToken.Kind != lexer.NAME {
+		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting an identifier.",
+			firstToken.LocationString(), firstToken)
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return
 	}
+
+	for p.tryMatch(lexer.NAME) {
+		identifier += p.lastPeek.Text
+		if !p.tryMatch(lexer.DOT) {
+			return
+		}
+		identifier += "."
+	}
+	message := fmt.Sprintf("Invalid identifier: %s at %s. Identifier may not end with a dot.",
+		identifier, firstToken.LocationString())
+	p.err = parserError{E_UNEXPECTED_TOKEN, message}
 	return
 }
 

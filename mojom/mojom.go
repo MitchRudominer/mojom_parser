@@ -5,10 +5,13 @@ import (
 )
 
 type MojomDescriptor struct {
+	// Note that UserDefinedType is an interface whereas UserDefinedConstant
+	// is a struct. That explains why we handle the former by value and
+	// the latter by pointer.
 	typesByKey       map[string]UserDefinedType
 	typeKeysByFQName map[string]string
 
-	constantsByKey       map[string]UserDefinedType
+	constantsByKey       map[string]*UserDefinedConstant
 	constantKeysByFQName map[string]string
 
 	MojomFiles []*MojomFile
@@ -25,9 +28,18 @@ func (d *MojomDescriptor) ContainsFile(fileName string) bool {
 	return false
 }
 
-func (d *MojomDescriptor) AddNewType(newType UserDefinedType) {
-	d.typesByKey[newType.GetTypeKey()] = newType
-	d.typeKeysByFQName[newType.GetFullyQualifiedName()] = newType.GetTypeKey()
+func (d *MojomDescriptor) AddNewType(newType UserDefinedType, namespace string) {
+	fullyQualifiedName := namespace + "." + newType.DeclarationData().SimpleName
+	newType.SetFullyQualifiedName(fullyQualifiedName)
+	d.typesByKey[newType.TypeKey()] = newType
+	d.typeKeysByFQName[newType.FullyQualifiedName()] = newType.TypeKey()
+}
+
+func (d *MojomDescriptor) AddNewConstant(newConstant *UserDefinedConstant, namespace string) {
+	fullyQualifiedName := namespace + "." + newConstant.declarationData.SimpleName
+	newConstant.setFullyQualifiedName(fullyQualifiedName)
+	d.constantsByKey[newConstant.constantKey] = newConstant
+	d.constantKeysByFQName[fullyQualifiedName] = newConstant.constantKey
 }
 
 func NewMojomDescriptor() *MojomDescriptor {
@@ -35,7 +47,7 @@ func NewMojomDescriptor() *MojomDescriptor {
 	descriptor.typesByKey = make(map[string]UserDefinedType)
 	descriptor.typeKeysByFQName = make(map[string]string)
 
-	descriptor.constantsByKey = make(map[string]UserDefinedType)
+	descriptor.constantsByKey = make(map[string]*UserDefinedConstant)
 	descriptor.constantKeysByFQName = make(map[string]string)
 
 	descriptor.MojomFiles = make([]*MojomFile, 0)
@@ -47,7 +59,7 @@ func NewMojomDescriptor() *MojomDescriptor {
 
 func SprintMapValueNames(m map[string]UserDefinedType) (s string) {
 	for key, value := range m {
-		s += fmt.Sprintf("%s : %s\n", key, value.GetFullyQualifiedName())
+		s += fmt.Sprintf("%s : %s\n", key, value.FullyQualifiedName())
 	}
 	return
 }
@@ -152,6 +164,9 @@ type MojomFile struct {
 	// be retrieved from the  MojomFileGraph.
 	Imports []MojomFileReference
 
+	// These are lists of *top-level* types defined in the file. They do
+	// not include enums and constants defined within structs, unions
+	// and interfaces.
 	Interfaces []*MojomInterface
 	Structs    []*MojomStruct
 	Unions     []*MojomUnion
@@ -172,34 +187,32 @@ func NewMojomFile(fileName string) *MojomFile {
 	return mojomFile
 }
 
-func (m *MojomFile) String() string {
-	s := fmt.Sprintf("file name: %s\n", m.FileName)
-	s += fmt.Sprintf("module: %s\n", m.ModuleNamespace)
-	s += fmt.Sprintf("attributes: %s\n", m.Attributes)
-	s += fmt.Sprintf("imports: %s\n", m.Imports)
-	s += fmt.Sprintf("interfaces: %s\n", m.Interfaces)
+func (f *MojomFile) String() string {
+	s := fmt.Sprintf("file name: %s\n", f.FileName)
+	s += fmt.Sprintf("module: %s\n", f.ModuleNamespace)
+	s += fmt.Sprintf("attributes: %s\n", f.Attributes)
+	s += fmt.Sprintf("imports: %s\n", f.Imports)
+	s += fmt.Sprintf("interfaces: %s\n", f.Interfaces)
 	return s
 }
 
-func (m *MojomFile) AddImport(fileName string) {
-	m.Imports = append(m.Imports, MojomFileReference{FileName: fileName})
+func (f *MojomFile) AddImport(fileName string) {
+	f.Imports = append(f.Imports, MojomFileReference{FileName: fileName})
 }
 
-func (m *MojomFile) AddNewType(newType UserDefinedType, simpleName string,
-	attributes *Attributes) {
-	fullyQualifiedName := m.ModuleNamespace + "." + simpleName
-	declarationData := NewDeclarationData(simpleName, attributes)
-	newType.Init(fullyQualifiedName, declarationData)
-	if m.Descriptor != nil {
-		m.Descriptor.AddNewType(newType)
-	}
+func (f *MojomFile) AddInterface(mojomInterface *MojomInterface) {
+	f.Descriptor.AddNewType(mojomInterface, f.ModuleNamespace)
+	f.Interfaces = append(f.Interfaces, mojomInterface)
 }
 
-func (m *MojomFile) AddInterface(simpleName string, attributes *Attributes) *MojomInterface {
-	mojomInterface := NewMojomInterface()
-	m.AddNewType(mojomInterface, simpleName, attributes)
-	m.Interfaces = append(m.Interfaces, mojomInterface)
-	return mojomInterface
+func (f *MojomFile) AddStruct(mojomStruct *MojomStruct) {
+	f.Descriptor.AddNewType(mojomStruct, f.ModuleNamespace)
+	f.Structs = append(f.Structs, mojomStruct)
+}
+
+func (f *MojomFile) AddEnum(mojomEnum *MojomEnum) {
+	f.Descriptor.AddNewType(mojomEnum, f.ModuleNamespace)
+	f.Enums = append(f.Enums, mojomEnum)
 }
 
 type MojomFileReference struct {
@@ -223,17 +236,22 @@ const (
 /////////////////////////////////////////////////////////////
 type UserDefinedType interface {
 	Kind() UserDefinedTypeKind
-	Init(fullyQualifiedName string, d *DeclarationData)
-	GetFullyQualifiedName() string
-	GetTypeKey() string
-	DeclarationData() *DeclarationData
+	Init(simpleName string, attributes *Attributes, file *MojomFile, descriptr *MojomDescriptor)
+	FullyQualifiedName() string
+	SetFullyQualifiedName(fqn string)
+	TypeKey() string
+	DeclarationData() *TypeDeclarationData
+	Descriptor() *MojomDescriptor
+	SupportsContainedDeclarations() bool
 	Identical(other UserDefinedType) bool
 }
 
 type UserDefinedTypeBase struct {
-	declarationData    *DeclarationData
+	declarationData    *TypeDeclarationData
 	fullyQualifiedName string
 	typeKey            string
+	file               *MojomFile
+	descriptor         *MojomDescriptor
 }
 
 func (b UserDefinedTypeBase) String() string {
@@ -242,7 +260,7 @@ func (b UserDefinedTypeBase) String() string {
 	return s
 }
 
-func (b UserDefinedTypeBase) GetFullyQualifiedName() string {
+func (b UserDefinedTypeBase) FullyQualifiedName() string {
 	return b.fullyQualifiedName
 }
 
@@ -252,18 +270,46 @@ func computeTypeKey(fullyQualifiedName string) (typeKey string) {
 	return fullyQualifiedName
 }
 
-func (b *UserDefinedTypeBase) Init(fullyQualifiedName string, d *DeclarationData) {
-	b.fullyQualifiedName = fullyQualifiedName
-	b.typeKey = computeTypeKey(fullyQualifiedName)
-	b.declarationData = d
+func (b *UserDefinedTypeBase) Init(simpleName string,
+	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) {
+	b.declarationData = NewTypeDeclarationData(simpleName, attributes)
+	b.file = file
+	b.descriptor = descriptor
 }
 
-func (b UserDefinedTypeBase) DeclarationData() *DeclarationData {
+func (b *UserDefinedTypeBase) SetFullyQualifiedName(fullyQualifiedName string) {
+	b.fullyQualifiedName = fullyQualifiedName
+	b.typeKey = computeTypeKey(fullyQualifiedName)
+}
+
+func (b UserDefinedTypeBase) DeclarationData() *TypeDeclarationData {
 	return b.declarationData
+}
+
+func (b UserDefinedTypeBase) Descriptor() *MojomDescriptor {
+	return b.descriptor
 }
 
 func (b UserDefinedTypeBase) Identical(other UserDefinedType) bool {
 	return b.DeclarationData() == other.DeclarationData()
+}
+
+func AddEnum(tp UserDefinedType, mojomEnum *MojomEnum) {
+	if !tp.SupportsContainedDeclarations() {
+		panic(fmt.Sprintf("Type %v does not support contained declarations.", tp))
+	}
+	tp.Descriptor().AddNewType(mojomEnum, tp.FullyQualifiedName())
+	tp.DeclarationData().ContainedDeclarations.enumKeys =
+		append(tp.DeclarationData().ContainedDeclarations.enumKeys, mojomEnum.typeKey)
+}
+
+func AddDeclaredConstant(tp UserDefinedType, declaredConst *UserDefinedConstant) {
+	if !tp.SupportsContainedDeclarations() {
+		panic(fmt.Sprintf("Type %v does not support contained declarations.", tp))
+	}
+	tp.Descriptor().AddNewConstant(declaredConst, tp.FullyQualifiedName())
+	tp.DeclarationData().ContainedDeclarations.constantKeys =
+		append(tp.DeclarationData().ContainedDeclarations.constantKeys, declaredConst.constantKey)
 }
 
 /////////////////////////////////////////////////////////////
@@ -275,19 +321,20 @@ type MojomStruct struct {
 	fields []StructField
 }
 
-func NewMojomStruct() *MojomStruct {
-	mojomStruct := new(MojomStruct)
-	mojomStruct.fields = make([]StructField, 0)
-	return mojomStruct
+func (s *MojomStruct) SupportsContainedDeclarations() bool {
+	return true
 }
 
-func (s *MojomStruct) AddField(fieldType Type, name string,
-	ordinalValue int, attributes *Attributes) {
-	field := StructField{fieldType: fieldType}
-	field.SimpleName = name
-	field.DeclaredOrdinal = ordinalValue
-	field.Attributes = attributes
-	s.fields = append(s.fields, field)
+func (s *MojomStruct) ComputeFieldOrdinals() {
+	// TODO
+}
+
+func NewMojomStruct(simpleName string,
+	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *MojomStruct {
+	mojomStruct := new(MojomStruct)
+	mojomStruct.fields = make([]StructField, 0)
+	mojomStruct.Init(simpleName, attributes, file, descriptor)
+	return mojomStruct
 }
 
 func (s MojomStruct) ParameterString() string {
@@ -311,11 +358,22 @@ func (s MojomStruct) ParameterString() string {
 }
 
 type StructField struct {
-	DeclarationData
+	ValueDeclarationData
 
 	fieldType    Type
-	defaultValue ConstantOccurrence
+	defaultValue *ConstantOccurrence
 	offset       int32
+}
+
+func BuildStructField(fieldType Type, name string,
+	ordinal int, attributes *Attributes, defaultValue *ConstantOccurrence) (field StructField) {
+	field = StructField{fieldType: fieldType, defaultValue: defaultValue}
+	field.InitValueDeclarationData(name, attributes, ordinal)
+	return
+}
+
+func (s *MojomStruct) AddField(field StructField) {
+	s.fields = append(s.fields, field)
 }
 
 type StructVersion struct {
@@ -340,10 +398,12 @@ type MojomInterface struct {
 	methodsByName map[string]*MojomMethod
 }
 
-func NewMojomInterface() *MojomInterface {
+func NewMojomInterface(simpleName string,
+	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *MojomInterface {
 	mojomInterface := new(MojomInterface)
 	mojomInterface.methodsByOrdinal = make(map[int]*MojomMethod)
 	mojomInterface.methodsByName = make(map[string]*MojomMethod)
+	mojomInterface.Init(simpleName, attributes, file, descriptor)
 	return mojomInterface
 }
 
@@ -362,7 +422,11 @@ func (m *MojomInterface) String() string {
 }
 
 func (m *MojomInterface) AddMethod(method *MojomMethod) {
-	m.methodsByName[method.declarationData.SimpleName] = method
+	m.methodsByName[method.SimpleName] = method
+}
+
+func (i *MojomInterface) SupportsContainedDeclarations() bool {
+	return true
 }
 
 func (m *MojomInterface) ComputeMethodOrdinals() {
@@ -370,7 +434,7 @@ func (m *MojomInterface) ComputeMethodOrdinals() {
 }
 
 type MojomMethod struct {
-	declarationData *DeclarationData
+	ValueDeclarationData
 
 	parameters *MojomStruct
 
@@ -380,10 +444,7 @@ type MojomMethod struct {
 func NewMojomMethod(name string, ordinalValue int, params,
 	responseParams *MojomStruct) *MojomMethod {
 	mojomMethod := new(MojomMethod)
-	mojomMethod.declarationData = NewDeclarationData(name, nil)
-	if ordinalValue >= 0 {
-		mojomMethod.declarationData.DeclaredOrdinal = ordinalValue
-	}
+	mojomMethod.InitValueDeclarationData(name, nil, ordinalValue)
 	mojomMethod.parameters = params
 	mojomMethod.responseParameters = responseParams
 	return mojomMethod
@@ -395,23 +456,15 @@ func (m *MojomMethod) String() string {
 	if m.responseParameters != nil {
 		responseString = fmt.Sprintf(" => (%s)", m.responseParameters.ParameterString())
 	}
-	return fmt.Sprintf("%s(%s)%s", m.declarationData.SimpleName, parameterString, responseString)
+	return fmt.Sprintf("%s(%s)%s", m.SimpleName, parameterString, responseString)
 }
 
 func (MojomInterface) Kind() UserDefinedTypeKind {
 	return INTERFACE_TYPE
 }
 
-func (i MojomInterface) GetTypeKey() string {
-	return i.typeKey
-}
-
-func (i MojomInterface) DeclarationData() *DeclarationData {
-	return i.declarationData
-}
-
-func (i MojomInterface) Identical(other UserDefinedType) bool {
-	return i.DeclarationData() == other.DeclarationData()
+func (b *UserDefinedTypeBase) TypeKey() string {
+	return b.typeKey
 }
 
 /////////////////////////////////////////////////////////////
@@ -424,7 +477,7 @@ type MojomUnion struct {
 }
 
 type UnionField struct {
-	DeclarationData
+	ValueDeclarationData
 
 	fieldType Type
 	tag       uint32
@@ -434,17 +487,29 @@ func (MojomUnion) Kind() UserDefinedTypeKind {
 	return UNION_TYPE
 }
 
+func (u *MojomUnion) SupportsContainedDeclarations() bool {
+	return false
+}
+
 /////////////////////////////////////////////////////////////
 // Enums
 /////////////////////////////////////////////////////////////
 type MojomEnum struct {
 	UserDefinedTypeBase
 
-	value []EnumValue
+	values []EnumValue
+}
+
+func NewMojomEnum(simpleName string,
+	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *MojomEnum {
+	mojomEnum := new(MojomEnum)
+	mojomEnum.values = make([]EnumValue, 0)
+	mojomEnum.Init(simpleName, attributes, file, descriptor)
+	return mojomEnum
 }
 
 type EnumValue struct {
-	DeclarationData
+	ValueDeclarationData
 
 	// The value must eventually resolve to a ConstantValue of type integer or
 	// EnumConstantValue.
@@ -455,13 +520,21 @@ func (MojomEnum) Kind() UserDefinedTypeKind {
 	return ENUM_TYPE
 }
 
+func (i *MojomEnum) SupportsContainedDeclarations() bool {
+	return false
+}
+
 /////////////////////////////////////////////////////////////
 //Declared Constants
 /////////////////////////////////////////////////////////////
 
 // This represents a Mojom constant declaration.
 type UserDefinedConstant struct {
-	DeclarationData
+	declarationData    *TypeDeclarationData
+	fullyQualifiedName string
+	constantKey        string
+	file               *MojomFile
+	descriptor         *MojomDescriptor
 
 	// The type must be a string, bool, float, double, or integer type.
 	valueType Type
@@ -470,21 +543,40 @@ type UserDefinedConstant struct {
 	value ConstantOccurrence
 }
 
+func (c *UserDefinedConstant) setFullyQualifiedName(fullyQualifiedName string) {
+	c.fullyQualifiedName = fullyQualifiedName
+	c.constantKey = computeTypeKey(fullyQualifiedName)
+}
+
 /////////////////////////////////////////////////////////////
 // Declaration Data
 /////////////////////////////////////////////////////////////
-type DeclarationData struct {
+type TypeDeclarationData struct {
 	SimpleName            string
 	Attributes            *Attributes
-	DeclaredOrdinal       int
 	ContainedDeclarations *ContainedDeclarations
 }
 
-func NewDeclarationData(simpleName string, attributes *Attributes) *DeclarationData {
-	declarationData := new(DeclarationData)
+func NewTypeDeclarationData(simpleName string, attributes *Attributes) *TypeDeclarationData {
+	declarationData := new(TypeDeclarationData)
 	declarationData.SimpleName = simpleName
 	declarationData.Attributes = attributes
 	return declarationData
+}
+
+type ValueDeclarationData struct {
+	SimpleName      string
+	Attributes      *Attributes
+	DeclaredOrdinal int
+}
+
+func (v *ValueDeclarationData) InitValueDeclarationData(simpleName string,
+	attributes *Attributes, ordinal int) {
+	v.SimpleName = simpleName
+	v.Attributes = attributes
+	if ordinal >= 0 {
+		v.DeclaredOrdinal = ordinal
+	}
 }
 
 type Attributes struct {
