@@ -104,7 +104,7 @@ type MojomDescriptor struct {
 	constantsByKey       map[string]*UserDefinedConstant
 	constantKeysByFQName map[string]string
 
-	MojomFiles []*MojomFile
+	mojomFiles []*MojomFile
 
 	unresolvedTypeReferences     []*TypeReference
 	unresolvedConstantReferences []*ConstantOccurrence
@@ -118,7 +118,7 @@ func NewMojomDescriptor() *MojomDescriptor {
 	descriptor.constantsByKey = make(map[string]*UserDefinedConstant)
 	descriptor.constantKeysByFQName = make(map[string]string)
 
-	descriptor.MojomFiles = make([]*MojomFile, 0)
+	descriptor.mojomFiles = make([]*MojomFile, 0)
 
 	descriptor.unresolvedTypeReferences = make([]*TypeReference, 0)
 	descriptor.unresolvedConstantReferences = make([]*ConstantOccurrence, 0)
@@ -135,12 +135,15 @@ func (d *MojomDescriptor) ContainsFile(fileName string) bool {
 }
 
 func (d *MojomDescriptor) SprintMojomFileNames() (s string) {
-	for _, f := range d.MojomFiles {
-		if f == nil {
-			s += "nil "
-		} else {
-			s += f.FileName
-		}
+	for _, f := range d.mojomFiles {
+		s += fmt.Sprintf("%s ", f.FileName)
+	}
+	return
+}
+
+func (d *MojomDescriptor) SprintUnresolvedTypeReference() (s string) {
+	for _, r := range d.unresolvedTypeReferences {
+		s += fmt.Sprintf("%s\n", r.FullString())
 	}
 	return
 }
@@ -148,6 +151,8 @@ func (d *MojomDescriptor) SprintMojomFileNames() (s string) {
 func (d *MojomDescriptor) String() string {
 	s := fmt.Sprintf("typesByKey:\n----------\n%s", SprintMapValueNames(d.typesByKey))
 	s += fmt.Sprintf("typeKeysByFQName:\n----------------\n%v", d.typeKeysByFQName)
+	s += fmt.Sprintf("\nunresolvedTypeReferences:\n------------------------\n%s\n",
+		d.SprintUnresolvedTypeReference())
 	s += fmt.Sprintf("\nMojomFiles:\n %s\n", d.SprintMojomFileNames())
 	return s
 }
@@ -155,8 +160,12 @@ func (d *MojomDescriptor) String() string {
 func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
 	mojomFile := NewMojomFile(fileName)
 	mojomFile.Descriptor = d
-	d.MojomFiles = append(d.MojomFiles, mojomFile)
+	d.mojomFiles = append(d.mojomFiles, mojomFile)
 	return mojomFile
+}
+
+func (d *MojomDescriptor) RegisterUnresolvedTypeReference(typeReference *TypeReference) {
+	d.unresolvedTypeReferences = append(d.unresolvedTypeReferences, typeReference)
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -195,7 +204,7 @@ func (d *MojomDescriptor) Resolve() (resolved bool) {
 }
 
 func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
-	scope := ref.Scope
+	scope := ref.scope
 	for scope != nil {
 		if key, ok := d.typeKeysByFQName[scope.FullyQualifiedName+ref.identifier]; ok {
 			ref.resolvedType = d.typesByKey[key]

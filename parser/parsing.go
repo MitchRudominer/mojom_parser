@@ -104,6 +104,9 @@ func (p *Parser) parseMojomFile() bool {
 	initialAttributes := p.parseAttributes()
 
 	moduleIdentifier := p.parseModuleDecl()
+	p.pushScope(mojom.NewScope(mojom.SCOPE_MODULE, p.currentScope,
+		moduleIdentifier))
+	defer p.popScope()
 
 	if p.OK() && len(moduleIdentifier) > 0 {
 		p.mojomFile.ModuleNamespace = moduleIdentifier
@@ -149,7 +152,7 @@ func (p *Parser) parseMojomFile() bool {
 			}
 			return false
 		}
-		nextToken := p.lastPeek
+		nextToken := p.peekNextToken("")
 		switch nextToken.Kind {
 		case lexer.INTERFACE:
 			p.mojomFile.AddInterface(p.parseInterfaceDecl(attributes))
@@ -189,16 +192,16 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 
 	attributes = mojom.NewAttributes()
 
-	nextToken := p.lastPeek
+	nextToken := p.lastConsumed
 	for nextToken.Kind != lexer.RBRACKET {
-		key := p.readName()
+		key := p.parseName()
 		if !p.OK() {
 			return
 		}
 		if !p.match(lexer.EQUALS) {
 			return
 		}
-		value := p.readName()
+		value := p.parseName()
 		if !p.OK() {
 			return
 		}
@@ -254,7 +257,7 @@ func (p *Parser) parseModuleDecl() (moduleIdentifier string) {
 	p.pushChildNode("moduleDecl")
 	defer p.popNode()
 
-	moduleIdentifier = p.readIdentifier()
+	moduleIdentifier = p.parseIdentifier()
 	p.matchSemicolon()
 	return
 }
@@ -271,7 +274,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 		p.pushChildNode("importStmnt")
 		p.consumeNextToken() // consume the IMPORT token.
 
-		fileName := p.readStringLiteral()
+		fileName := p.parseStringLiteral()
 		if !p.OK() {
 			return
 		}
@@ -316,7 +319,7 @@ func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterfac
 		return
 	}
 
-	simpleName := p.readName()
+	simpleName := p.parseName()
 	if !p.OK() {
 		return
 	}
@@ -349,6 +352,10 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 	}
 	p.pushChildNode("interfaceBody")
 	defer p.popNode()
+
+	p.pushScope(mojom.NewScope(mojom.SCOPE_INTERFACE, p.currentScope,
+		mojomInterface.SimpleName()))
+	defer p.popScope()
 
 	rbraceFound := false
 	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
@@ -392,7 +399,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 	p.pushChildNode("methodDecl")
 	defer p.popNode()
 
-	methodName := p.readName()
+	methodName := p.parseName()
 	if !p.OK() {
 		return nil
 	}
@@ -411,7 +418,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 	if !p.match(lexer.RPAREN) {
 		return nil
 	}
-	rParenBeforeSemicolon := p.lastPeek
+	rParenBeforeSemicolon := p.lastConsumed
 
 	// Check for a response message
 	var responseParams *mojom.MojomStruct = nil
@@ -428,7 +435,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 		if !p.match(lexer.RPAREN) {
 			return nil
 		}
-		rParenBeforeSemicolon = p.lastPeek
+		rParenBeforeSemicolon = p.lastConsumed
 	}
 
 	if !p.matchSemicolonToken(rParenBeforeSemicolon) {
@@ -456,11 +463,11 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 	for nextToken.Kind != lexer.RPAREN {
 
 		attributes := p.parseAttributes()
-		fieldType := p.readType()
+		fieldType := p.parseType()
 		if !p.OK() {
 			return
 		}
-		name := p.readName()
+		name := p.parseName()
 		ordinalValue := p.parseOrdinal()
 		if !p.OK() {
 			return
@@ -497,7 +504,7 @@ func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *moj
 		return
 	}
 
-	simpleName := p.readName()
+	simpleName := p.parseName()
 	if !p.OK() {
 		return
 	}
@@ -530,6 +537,10 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 	}
 	p.pushChildNode("structBody")
 	defer p.popNode()
+
+	p.pushScope(mojom.NewScope(mojom.SCOPE_STRUCT, p.currentScope,
+		mojomStruct.SimpleName()))
+	defer p.popScope()
 
 	rbraceFound := false
 	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
@@ -573,8 +584,8 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 	p.pushChildNode("structField")
 	defer p.popNode()
 
-	fieldType := p.readType()
-	fieldName := p.readName()
+	fieldType := p.parseType()
+	fieldName := p.parseName()
 	ordinalValue := p.parseOrdinal()
 	if !p.matchSemicolon() {
 		return
@@ -613,14 +624,75 @@ func (p *Parser) parseOrdinal() (ordinalValue int) {
 	if !p.OK() {
 		return
 	}
+
 	ordinalValue = -1
 	if p.tryMatch(lexer.ORDINAL) {
-		x, err := strconv.Atoi(p.lastPeek.Text[1:])
+		x, err := strconv.Atoi(p.lastConsumed.Text[1:])
 		if err != nil || x < 0 {
 			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
 		}
 		ordinalValue = x
+		p.pushChildNode("structField")
+		p.popNode()
 	}
+	return
+}
+
+func (p *Parser) parseType() mojom.Type {
+	if !p.OK() {
+		return nil
+	}
+	p.pushChildNode("type")
+	defer p.popNode()
+
+	return p.readType()
+}
+
+func (p *Parser) parseStringLiteral() (literal string) {
+	if !p.OK() {
+		return
+	}
+	p.pushChildNode("stringLiteral")
+	defer p.popNode()
+
+	return p.readText(lexer.STRING_LITERAL)
+}
+
+func (p *Parser) parseIdentifier() (identifier string) {
+	if !p.OK() {
+		return
+	}
+	p.pushChildNode("identifier")
+	defer p.popNode()
+
+	firstToken := p.peekNextToken("Expecting an identifier.")
+	if firstToken.Kind != lexer.NAME {
+		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting an identifier.",
+			firstToken.LocationString(), firstToken)
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return
+	}
+
+	for p.tryMatch(lexer.NAME) {
+		identifier += p.lastConsumed.Text
+		if !p.tryMatch(lexer.DOT) {
+			return
+		}
+		identifier += "."
+	}
+	message := fmt.Sprintf("Invalid identifier: %s at %s. Identifier may not end with a dot.",
+		identifier, firstToken.LocationString())
+	p.err = parserError{E_UNEXPECTED_TOKEN, message}
+	return
+}
+
+func (p *Parser) parseName() (name string) {
+	if !p.OK() {
+		return
+	}
+	name = p.readText(lexer.NAME)
+	p.pushChildNode("name")
+	p.popNode()
 	return
 }
 
@@ -639,7 +711,7 @@ func (p *Parser) peekNextToken(eofMessage string) (nextToken lexer.Token) {
 		errorMessage := "Unexpected end-of-file. " + eofMessage
 		p.err = parserError{E_EOF, errorMessage}
 	}
-	p.lastPeek = nextToken
+	p.lastSeen = nextToken
 	return
 }
 
@@ -648,15 +720,20 @@ func (p *Parser) peekNextToken(eofMessage string) (nextToken lexer.Token) {
 // This method is useful when EOF is an allowed state and you want
 // to know what the extraneous token is in case it is not EOF.
 func (p *Parser) checkEOF() (eof bool) {
-	p.lastPeek = p.inputStream.PeekNext()
-	eof = p.lastPeek.EOF()
+	p.lastSeen = p.inputStream.PeekNext()
+	eof = p.lastSeen.EOF()
 	return
 }
 
 // Advances the cursor in the stream and returns true, or else returns
 // false if the cursor is already past the end of the stream.
 func (p *Parser) consumeNextToken() bool {
-	return p.inputStream.ConsumeNext()
+	token := p.inputStream.PeekNext()
+	if p.inputStream.ConsumeNext() {
+		p.lastConsumed = token
+		return true
+	}
+	return false
 }
 
 func (p *Parser) match(expectedKind lexer.TokenKind) bool {
@@ -685,7 +762,7 @@ func (p *Parser) tryMatch(expectedKind lexer.TokenKind) bool {
 	if !p.OK() {
 		return false
 	}
-	nextToken := p.lastPeek
+	nextToken := p.peekNextToken("")
 	if nextToken.Kind != expectedKind {
 		return false
 	}
@@ -707,7 +784,7 @@ func (p *Parser) matchSemicolonToken(previousToken lexer.Token) bool {
 }
 
 func (p *Parser) matchSemicolon() bool {
-	return p.matchSemicolonToken(p.lastPeek)
+	return p.matchSemicolonToken(p.lastConsumed)
 }
 
 func (p *Parser) readText(kind lexer.TokenKind) (text string) {
@@ -718,59 +795,61 @@ func (p *Parser) readText(kind lexer.TokenKind) (text string) {
 	if !p.match(kind) {
 		return
 	}
-	return p.lastPeek.Text
+	return p.lastConsumed.Text
 }
 
-func (p *Parser) readStringLiteral() (literal string) {
-	return p.readText(lexer.STRING_LITERAL)
-}
-
-func (p *Parser) readName() (name string) {
-	return p.readText(lexer.NAME)
-}
-
-func (p *Parser) readIdentifier() (identifier string) {
-	if !p.OK() {
-		return
-	}
-	firstToken := p.peekNextToken("Expecting an identifier.")
-	if firstToken.Kind != lexer.NAME {
-		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting an identifier.",
-			firstToken.LocationString(), firstToken)
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
-		return
-	}
-
-	for p.tryMatch(lexer.NAME) {
-		identifier += p.lastPeek.Text
-		if !p.tryMatch(lexer.DOT) {
-			return
-		}
-		identifier += "."
-	}
-	message := fmt.Sprintf("Invalid identifier: %s at %s. Identifier may not end with a dot.",
-		identifier, firstToken.LocationString())
-	p.err = parserError{E_UNEXPECTED_TOKEN, message}
-	return
-}
-
+///////////////// Methods for parsing typess ////////
 func (p *Parser) readType() mojom.Type {
-	typeName := p.readName()
-	firstToken := p.lastPeek
+	if !p.OK() {
+		return nil
+	}
+
+	mojomType := p.tryReadBuiltInType()
+	if mojomType == nil {
+		mojomType = p.tryReadArrayType()
+	}
+	if mojomType == nil {
+		mojomType = p.tryReadMapType()
+	}
+	if mojomType == nil {
+		mojomType = p.readUserDefinedType()
+	}
+
+	return mojomType
+}
+
+func (p *Parser) tryReadBuiltInType() mojom.Type {
+	if !p.OK() {
+		return nil
+	}
+
+	typeNameToken := p.peekNextToken("I was reading a type.")
+	if typeNameToken.Kind != lexer.NAME {
+		return nil
+	}
+	typeName := typeNameToken.Text
+	builtInType, ok := mojom.BuiltInTypeMap[typeName]
+	if !ok {
+		return nil
+	}
+	p.consumeNextToken()
+
+	// handle<*> types
 	if typeName == mojom.HANDLE_PREFIX {
 		if p.tryMatch(lexer.LANGLE) {
-			handleType := p.readName()
+			handleType := p.readText(lexer.NAME)
 			if !p.OK() {
+				token := p.lastSeen
 				message := fmt.Sprintf("Unexpected token at %s: %s. Expecting a type of handle.",
-					p.lastPeek.LocationString(), p.lastPeek)
+					token.LocationString(), token)
 				p.err = parserError{E_UNEXPECTED_TOKEN, message}
 				return nil
 			}
 			if p.match(lexer.RANGLE) {
 				typeName = fmt.Sprintf("%s<%s>", typeName, handleType)
-				if _, ok := mojom.BuiltInTypeMap[typeName]; !ok {
+				if builtInType, ok = mojom.BuiltInTypeMap[typeName]; !ok {
 					message := fmt.Sprintf("Unrecognized type of handle at %s: %s.",
-						firstToken.LocationString(), typeName)
+						typeNameToken.LocationString(), typeName)
 					p.err = parserError{E_UNEXPECTED_TOKEN, message}
 					return nil
 				}
@@ -780,13 +859,72 @@ func (p *Parser) readType() mojom.Type {
 			return nil
 		}
 	}
+
+	// Check for nullable marker
 	if p.tryMatch(lexer.QSTN) {
-		typeName += "?"
+		if builtInType, ok = mojom.BuiltInTypeMap[typeName+"?"]; !ok {
+			message := fmt.Sprintf("The type %s? at %s is invalid because the "+
+				"type %s may not be made nullable.",
+				typeName, typeNameToken.LocationString(), typeName)
+			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return nil
+		}
 	}
-	if t, ok := mojom.BuiltInTypeMap[typeName]; ok {
-		return t
+
+	return builtInType
+}
+
+func (p *Parser) tryReadArrayType() mojom.Type {
+	if !p.OK() {
+		return nil
 	}
 	return nil
+}
+
+func (p *Parser) tryReadMapType() mojom.Type {
+	if !p.OK() {
+		return nil
+	}
+	return nil
+}
+
+func (p *Parser) readUserDefinedType() mojom.Type {
+	if !p.OK() {
+		return nil
+	}
+	identifier := p.parseIdentifier()
+	if !p.OK() {
+		return nil
+	}
+	// Note we must check for '&' before we check for '?'.
+	// The other order is invalid and if it occurrs the extraneous
+	// '&' will be detected later.
+	interfaceRequest := p.tryMatch(lexer.AMP)
+	nullable := p.tryMatch(lexer.QSTN)
+	if !p.OK() {
+		return nil
+	}
+	userDefinedType := mojom.NewTypeReference(identifier, nullable,
+		interfaceRequest, p.currentScope)
+	p.mojomDescriptor.RegisterUnresolvedTypeReference(userDefinedType)
+	return userDefinedType
+}
+
+////////////////// Scope Stack /////////////////////
+///
+func (p *Parser) pushScope(scope *mojom.Scope) {
+	if p.currentScope == nil {
+		p.currentScope = scope
+	} else {
+		scope.ParentScope = p.currentScope
+		p.currentScope = scope
+	}
+}
+
+func (p *Parser) popScope() {
+	if p.currentScope != nil {
+		p.currentScope = p.currentScope.ParentScope
+	}
 }
 
 ////////////////// Parse Tree /////////////////////
@@ -844,8 +982,8 @@ func (p *Parser) pushRootNode(name string) {
 
 func (p *Parser) pushChildNode(name string) {
 	if p.currentNode != nil {
-		lastPeekCopy := p.lastPeek
-		childNode := p.currentNode.appendChild(name, &(lastPeekCopy))
+		tokenCopy := p.lastSeen
+		childNode := p.currentNode.appendChild(name, &(tokenCopy))
 		p.currentNode = childNode
 	}
 }

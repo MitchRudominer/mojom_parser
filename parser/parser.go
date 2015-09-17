@@ -18,7 +18,8 @@ type Parser struct {
 	// The current error state
 	err parserError
 
-	lastPeek lexer.Token
+	lastSeen     lexer.Token
+	lastConsumed lexer.Token
 
 	// The root of the parse tree being constructed. This may be nil
 	// because the parse tree is only explicitly constructed for
@@ -37,6 +38,9 @@ type Parser struct {
 
 	// The Parser creates a new instance of MojomFile on each call to Parse()
 	mojomFile *mojom.MojomFile
+
+	// The top of the Scope stack.
+	currentScope *mojom.Scope
 
 	debugMode bool
 }
@@ -59,7 +63,7 @@ func (p *Parser) Parse() {
 
 	// Check if there are any extraneous tokens left in the stream.
 	if p.OK() && !p.checkEOF() {
-		token := p.lastPeek
+		token := p.peekNextToken("")
 		message := fmt.Sprintf("Extraneous token at %s: %v.",
 			token.LocationString(), token)
 		p.err = parserError{E_EXTRANEOUS_TOKEN, message}

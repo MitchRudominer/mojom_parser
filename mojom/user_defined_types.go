@@ -21,8 +21,8 @@ const (
 type UserDefinedType interface {
 	Kind() UserDefinedTypeKind
 	TypeKey() string
+	SimpleName() string
 	FullyQualifiedName() string
-	DeclarationData() *TypeDeclarationData
 	SupportsContainedDeclarations() bool
 	Identical(other UserDefinedType) bool
 }
@@ -30,10 +30,10 @@ type UserDefinedType interface {
 // This struct is embedded in each of MojomStruct, MojomInterface
 // MojomEnum and MojomUnion
 type UserDefinedTypeBase struct {
-	declarationData    *TypeDeclarationData
+	TypeDeclarationData
+	thisType           UserDefinedType
 	fullyQualifiedName string
 	typeKey            string
-	thisType           UserDefinedType
 	file               *MojomFile
 	descriptor         *MojomDescriptor
 }
@@ -42,8 +42,9 @@ type UserDefinedTypeBase struct {
 // NewMojomInterface, NewMojomStruct, NewMojomEnum, NewMojomUnion
 func (b *UserDefinedTypeBase) Init(simpleName string, thisType UserDefinedType,
 	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) {
-	b.declarationData = NewTypeDeclarationData(simpleName, attributes)
 	b.thisType = thisType
+	b.simpleName = simpleName
+	b.attributes = attributes
 	b.file = file
 	b.descriptor = descriptor
 }
@@ -63,16 +64,16 @@ func (b *UserDefinedTypeBase) RegisterWithDescriptor(namespace string) {
 	if b.descriptor == nil {
 		panic("Init() must be invoked first.")
 	}
-	b.fullyQualifiedName = namespace + "." + b.declarationData.SimpleName
+	b.fullyQualifiedName = namespace + "." + b.simpleName
 	b.typeKey = computeTypeKey(b.fullyQualifiedName)
 	b.descriptor.typesByKey[b.typeKey] = b.thisType
 	b.descriptor.typeKeysByFQName[b.fullyQualifiedName] = b.typeKey
 }
 
 func (b UserDefinedTypeBase) String() string {
-	s := fmt.Sprintf("fullyQualifiedName: %s\n", b.fullyQualifiedName)
+	s := fmt.Sprintf("%s\n", b.fullyQualifiedName)
 	s += fmt.Sprintf("typeKey: %s\n", b.typeKey)
-	s += fmt.Sprintf("%s", b.declarationData)
+	s += fmt.Sprintf("%s", b.TypeDeclarationData)
 	return s
 }
 
@@ -80,16 +81,16 @@ func (b *UserDefinedTypeBase) TypeKey() string {
 	return b.typeKey
 }
 
+func (b UserDefinedTypeBase) SimpleName() string {
+	return b.simpleName
+}
+
 func (b UserDefinedTypeBase) FullyQualifiedName() string {
 	return b.fullyQualifiedName
 }
 
-func (b UserDefinedTypeBase) DeclarationData() *TypeDeclarationData {
-	return b.declarationData
-}
-
 func (b UserDefinedTypeBase) Identical(other UserDefinedType) bool {
-	return b.DeclarationData() == other.DeclarationData()
+	return b.typeKey == other.TypeKey()
 }
 
 // Adds an enum to a this type, which must be an interface or struct.
@@ -98,8 +99,8 @@ func (b UserDefinedTypeBase) AddEnum(mojomEnum *MojomEnum) {
 		panic(fmt.Sprintf("Type %v does not support contained declarations.", b.thisType))
 	}
 	mojomEnum.RegisterWithDescriptor(b.fullyQualifiedName)
-	b.declarationData.ContainedDeclarations.enumKeys =
-		append(b.declarationData.ContainedDeclarations.enumKeys, mojomEnum.typeKey)
+	b.containedDeclarations.enumKeys =
+		append(b.containedDeclarations.enumKeys, mojomEnum.typeKey)
 }
 
 // Adds a declared constant to a this type, which must be an interface or struct.
@@ -108,8 +109,8 @@ func (b UserDefinedTypeBase) AddConstant(declaredConst *UserDefinedConstant) {
 		panic(fmt.Sprintf("Type %v does not support contained declarations.", b.thisType))
 	}
 	declaredConst.RegisterWithDescriptor(b.fullyQualifiedName)
-	b.declarationData.ContainedDeclarations.constantKeys =
-		append(b.declarationData.ContainedDeclarations.constantKeys, declaredConst.constantKey)
+	b.containedDeclarations.constantKeys =
+		append(b.containedDeclarations.constantKeys, declaredConst.constantKey)
 }
 
 /////////////////////////////////////////////////////////////
@@ -354,11 +355,9 @@ type EnumValue struct {
 
 // This represents a Mojom constant declaration.
 type UserDefinedConstant struct {
-	declarationData    *TypeDeclarationData
+	TypeDeclarationData
 	fullyQualifiedName string
 	constantKey        string
-	file               *MojomFile
-	descriptor         *MojomDescriptor
 
 	// The type must be a string, bool, float, double, or integer type.
 	valueType Type
@@ -370,14 +369,15 @@ type UserDefinedConstant struct {
 func NewUserDefinedConstant(simpleName string,
 	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *UserDefinedConstant {
 	userDefinedConstant := new(UserDefinedConstant)
-	userDefinedConstant.declarationData = NewTypeDeclarationData(simpleName, attributes)
+	userDefinedConstant.simpleName = simpleName
+	userDefinedConstant.attributes = attributes
 	userDefinedConstant.file = file
 	userDefinedConstant.descriptor = descriptor
 	return userDefinedConstant
 }
 
 func (c *UserDefinedConstant) RegisterWithDescriptor(namespace string) {
-	c.fullyQualifiedName = namespace + "." + c.declarationData.SimpleName
+	c.fullyQualifiedName = namespace + "." + c.simpleName
 	c.constantKey = computeTypeKey(c.fullyQualifiedName)
 	c.descriptor.constantsByKey[c.constantKey] = c
 	c.descriptor.constantKeysByFQName[c.fullyQualifiedName] = c.constantKey
@@ -386,28 +386,24 @@ func (c *UserDefinedConstant) RegisterWithDescriptor(namespace string) {
 /////////////////////////////////////////////////////////////
 // Declaration Data
 /////////////////////////////////////////////////////////////
+
 type TypeDeclarationData struct {
-	SimpleName            string
-	Attributes            *Attributes
-	ContainedDeclarations *ContainedDeclarations
+	simpleName            string
+	attributes            *Attributes
+	containedDeclarations *ContainedDeclarations
+	file                  *MojomFile
+	descriptor            *MojomDescriptor
 }
 
 func (t *TypeDeclarationData) String() string {
 	s := ""
-	if t.Attributes != nil {
-		s = fmt.Sprintf("\n%s", t.Attributes)
+	if t.attributes != nil {
+		s = fmt.Sprintf("\n%s", t.attributes)
 	}
-	if t.ContainedDeclarations != nil {
-		s += fmt.Sprintf("\n%s", t.ContainedDeclarations)
+	if t.containedDeclarations != nil {
+		s += fmt.Sprintf("\n%s", t.containedDeclarations)
 	}
 	return s
-}
-
-func NewTypeDeclarationData(simpleName string, attributes *Attributes) *TypeDeclarationData {
-	declarationData := new(TypeDeclarationData)
-	declarationData.SimpleName = simpleName
-	declarationData.Attributes = attributes
-	return declarationData
 }
 
 type ValueDeclarationData struct {

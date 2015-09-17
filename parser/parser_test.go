@@ -14,6 +14,7 @@ func buildTestFileContents() string {
 
 	interface baz{
 	    DoIt(int64  x@4) => (int64 y, int64 z);
+	    DoItAgain(key.largo.HisStruct? boo);
 	};
 
 	struct MyStruct {
@@ -24,11 +25,11 @@ func buildTestFileContents() string {
 	struct MyOtherStruct {
 		bool bat;
 		string s1;
-		string? s1;
+		string? s2;
 		handle<message_pipe> h1;
 		handle h2;
-		handle<message_pipe>? h3
-		MyStruct aStruct;
+		handle<message_pipe>? h3;
+		largo.MyStruct aStruct;
 	};
 	`
 	return contents

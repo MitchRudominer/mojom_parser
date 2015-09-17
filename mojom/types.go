@@ -349,7 +349,7 @@ type TypeReference struct {
 
 	// The scope where this type reference occurred. This is
 	// used to resolve the identifier.
-	Scope *Scope
+	scope *Scope
 
 	// The identifier as it appears at the reference site.
 	identifier string
@@ -361,18 +361,57 @@ type TypeReference struct {
 	resolvedType UserDefinedType
 }
 
+func NewTypeReference(identifier string, nullable bool,
+	interfaceRequest bool, scope *Scope) *TypeReference {
+	return &TypeReference{identifier: identifier,
+		nullable: nullable, interfaceRequest: interfaceRequest, scope: scope}
+}
+
 type ScopeKind int
 
 const (
-	MODULE ScopeKind = iota
-	INTERFACE
-	STRUCT
+	SCOPE_MODULE ScopeKind = iota
+	SCOPE_INTERFACE
+	SCOPE_STRUCT
 )
+
+func (k ScopeKind) String() string {
+	switch k {
+	case SCOPE_MODULE:
+		return "module"
+	case SCOPE_INTERFACE:
+		return "interface"
+	case SCOPE_STRUCT:
+		return "struct"
+	default:
+		panic(fmt.Sprintf("Unrecognized ScopeKind %d", k))
+	}
+}
 
 type Scope struct {
 	Kind               ScopeKind
 	ParentScope        *Scope
 	FullyQualifiedName string
+}
+
+func NewScope(kind ScopeKind, parentScope *Scope, simpleName string) *Scope {
+	scope := new(Scope)
+	scope.ParentScope = parentScope
+	scope.Kind = kind
+	prefix := ""
+	if parentScope != nil {
+		prefix = fmt.Sprintf("%s.", parentScope.FullyQualifiedName)
+	}
+	scope.FullyQualifiedName = fmt.Sprintf("%s%s", prefix, simpleName)
+	return scope
+}
+
+func (s *Scope) String() string {
+	str := fmt.Sprintf("%s:%s", s.Kind, s.FullyQualifiedName)
+	if s.ParentScope != nil {
+		str = fmt.Sprintf("%s --> %s", str, s.ParentScope)
+	}
+	return str
 }
 
 func (TypeReference) Kind() TypeKind {
@@ -402,7 +441,19 @@ func (t TypeReference) Identical(other Type) bool {
 }
 
 func (t TypeReference) String() string {
-	return "TODO(rudominer)"
+	interfaceRequest := ""
+	if t.interfaceRequest {
+		interfaceRequest = "&"
+	}
+	nullable := ""
+	if t.nullable {
+		nullable = "?"
+	}
+	return fmt.Sprintf("%s%s%s", t.identifier, interfaceRequest, nullable)
+}
+
+func (t TypeReference) FullString() string {
+	return fmt.Sprintf("%s Scope: %s", t.String(), t.scope.String())
 }
 
 /////////////////////////////////////////////////////////////
