@@ -104,12 +104,15 @@ func (p *Parser) parseMojomFile() bool {
 	initialAttributes := p.parseAttributes()
 
 	moduleIdentifier := p.parseModuleDecl()
-	p.pushScope(mojom.NewScope(mojom.SCOPE_MODULE, p.currentScope,
-		moduleIdentifier))
+	if !p.OK() {
+		return false
+	}
+
+	// Set up the root scope
+	p.pushScope(p.mojomFile.SetModuleNamespace(moduleIdentifier))
 	defer p.popScope()
 
-	if p.OK() && len(moduleIdentifier) > 0 {
-		p.mojomFile.ModuleNamespace = moduleIdentifier
+	if len(moduleIdentifier) > 0 {
 		p.mojomFile.Attributes = initialAttributes
 		initialAttributes = nil
 	}
@@ -324,7 +327,7 @@ func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterfac
 		return
 	}
 
-	mojomInterface = mojom.NewMojomInterface(simpleName, attributes, p.mojomFile, p.mojomDescriptor)
+	mojomInterface = mojom.NewMojomInterface(simpleName, attributes)
 
 	if !p.match(lexer.LBRACE) {
 		return
@@ -353,8 +356,8 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 	p.pushChildNode("interfaceBody")
 	defer p.popNode()
 
-	p.pushScope(mojom.NewScope(mojom.SCOPE_INTERFACE, p.currentScope,
-		mojomInterface.SimpleName()))
+	// The interface body forms a new scope.
+	p.pushScope(mojomInterface.InitScope(p.currentScope))
 	defer p.popScope()
 
 	rbraceFound := false
@@ -466,7 +469,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 	p.pushChildNode("paramList")
 	defer p.popNode()
 
-	paramStruct = mojom.NewMojomStruct("ParamStruct", nil, nil, nil)
+	paramStruct = mojom.NewMojomStruct("SyntheticParamStruct", nil)
 	nextToken := p.peekNextToken("I was parsing method parameters.")
 	for nextToken.Kind != lexer.RPAREN {
 
@@ -516,8 +519,7 @@ func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *moj
 	if !p.OK() {
 		return
 	}
-	mojomStruct = mojom.NewMojomStruct(simpleName, attributes,
-		p.mojomFile, p.mojomDescriptor)
+	mojomStruct = mojom.NewMojomStruct(simpleName, attributes)
 
 	if !p.match(lexer.LBRACE) {
 		return
@@ -546,8 +548,8 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 	p.pushChildNode("structBody")
 	defer p.popNode()
 
-	p.pushScope(mojom.NewScope(mojom.SCOPE_STRUCT, p.currentScope,
-		mojomStruct.SimpleName()))
+	// The struct body forms a new scope.
+	p.pushScope(mojomStruct.InitScope(p.currentScope))
 	defer p.popScope()
 
 	rbraceFound := false
@@ -922,14 +924,16 @@ func (p *Parser) pushScope(scope *mojom.Scope) {
 	if p.currentScope == nil {
 		p.currentScope = scope
 	} else {
-		scope.ParentScope = p.currentScope
+		if scope.Parent() != p.currentScope {
+			panic("Can only push child of current scope.")
+		}
 		p.currentScope = scope
 	}
 }
 
 func (p *Parser) popScope() {
 	if p.currentScope != nil {
-		p.currentScope = p.currentScope.ParentScope
+		p.currentScope = p.currentScope.Parent()
 	}
 }
 

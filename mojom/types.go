@@ -389,29 +389,46 @@ func (k ScopeKind) String() string {
 }
 
 type Scope struct {
-	Kind               ScopeKind
-	ParentScope        *Scope
-	FullyQualifiedName string
+	kind               ScopeKind
+	parentScope        *Scope
+	simpleName         string
+	fullyQualifiedName string
+	typesByName        map[string]UserDefinedType
+	constantsByName    map[string]*UserDefinedConstant
+	file               *MojomFile
 }
 
-func NewScope(kind ScopeKind, parentScope *Scope, simpleName string) *Scope {
+func NewScope(kind ScopeKind, parentScope *Scope,
+	simpleName string, file *MojomFile) *Scope {
 	scope := new(Scope)
-	scope.ParentScope = parentScope
-	scope.Kind = kind
-	prefix := ""
+	scope.parentScope = parentScope
+	scope.kind = kind
+	scope.simpleName = simpleName
+	scope.fullyQualifiedName = simpleName
 	if parentScope != nil {
-		prefix = fmt.Sprintf("%s.", parentScope.FullyQualifiedName)
+		scope.fullyQualifiedName =
+			parentScope.fullyQualifiedName + "." + simpleName
 	}
-	scope.FullyQualifiedName = fmt.Sprintf("%s%s", prefix, simpleName)
+	scope.typesByName = make(map[string]UserDefinedType)
+	scope.constantsByName = make(map[string]*UserDefinedConstant)
+	scope.file = file
 	return scope
 }
 
 func (s *Scope) String() string {
-	str := fmt.Sprintf("%s:%s", s.Kind, s.FullyQualifiedName)
-	if s.ParentScope != nil {
-		str = fmt.Sprintf("%s --> %s", str, s.ParentScope)
+	str := fmt.Sprintf("%s:%s", s.kind, s.fullyQualifiedName)
+	if s.parentScope != nil {
+		str = fmt.Sprintf("%s --> %s", str, s.parentScope)
 	}
 	return str
+}
+
+func (s *Scope) Parent() *Scope {
+	return s.parentScope
+}
+
+func (s *Scope) File() *MojomFile {
+	return s.file
 }
 
 func (TypeReference) Kind() TypeKind {

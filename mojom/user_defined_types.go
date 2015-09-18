@@ -23,30 +23,27 @@ type UserDefinedType interface {
 	TypeKey() string
 	SimpleName() string
 	FullyQualifiedName() string
-	SupportsContainedDeclarations() bool
 	Identical(other UserDefinedType) bool
 }
 
 // This struct is embedded in each of MojomStruct, MojomInterface
 // MojomEnum and MojomUnion
 type UserDefinedTypeBase struct {
-	TypeDeclarationData
+	attributes         *Attributes
 	thisType           UserDefinedType
+	simpleName         string
 	fullyQualifiedName string
 	typeKey            string
 	file               *MojomFile
-	descriptor         *MojomDescriptor
 }
 
 // This method is invoked from the constructors for the containing types:
 // NewMojomInterface, NewMojomStruct, NewMojomEnum, NewMojomUnion
 func (b *UserDefinedTypeBase) Init(simpleName string, thisType UserDefinedType,
-	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) {
+	attributes *Attributes) {
 	b.thisType = thisType
 	b.simpleName = simpleName
 	b.attributes = attributes
-	b.file = file
-	b.descriptor = descriptor
 }
 
 // Generates the fully-qualified name and the type key and registers the
@@ -60,21 +57,23 @@ func (b *UserDefinedTypeBase) Init(simpleName string, thisType UserDefinedType,
 //
 // namespace is the fully-qualified name of the container to which the
 // type is being added.
-func (b *UserDefinedTypeBase) RegisterWithDescriptor(namespace string) {
-	if b.descriptor == nil {
-		panic("Init() must be invoked first.")
+func (b *UserDefinedTypeBase) RegisterInScope(scope *Scope, namePrefix string) {
+	// Register in the given scope with the given namePrefix.
+	fmt.Println("**** Adding " + namePrefix + b.SimpleName() + " to " + scope.String())
+	scope.typesByName[namePrefix+b.SimpleName()] = b.thisType
+	// Then propogate the registration up the scope chain prepending the
+	// child scope's name to the namePrefix.
+	if scope.parentScope != nil {
+		b.RegisterInScope(scope.parentScope, scope.simpleName+"."+namePrefix)
 	}
-	b.fullyQualifiedName = namespace + "." + b.simpleName
+	b.fullyQualifiedName = scope.fullyQualifiedName + "." + b.simpleName
 	b.typeKey = computeTypeKey(b.fullyQualifiedName)
-	b.descriptor.typesByKey[b.typeKey] = b.thisType
-	b.descriptor.typeKeysByFQName[b.fullyQualifiedName] = b.typeKey
+	scope.file.Descriptor.typesByKey[b.typeKey] = b.thisType
+	scope.file.Descriptor.typeKeysByFQName[b.fullyQualifiedName] = b.typeKey
 }
 
 func (b UserDefinedTypeBase) String() string {
-	s := fmt.Sprintf("%s\n", b.fullyQualifiedName)
-	s += fmt.Sprintf("typeKey: %s\n", b.typeKey)
-	s += fmt.Sprintf("%s", b.TypeDeclarationData)
-	return s
+	return "TODO"
 }
 
 func (b *UserDefinedTypeBase) TypeKey() string {
@@ -93,24 +92,20 @@ func (b UserDefinedTypeBase) Identical(other UserDefinedType) bool {
 	return b.typeKey == other.TypeKey()
 }
 
+// Some user-defined types, namely interfaces and structs, may act as
+// namespaced scopes for declarations of constants and enums.
+type DeclarationContainer struct {
+	scope *Scope
+}
+
 // Adds an enum to a this type, which must be an interface or struct.
-func (b UserDefinedTypeBase) AddEnum(mojomEnum *MojomEnum) {
-	if !b.thisType.SupportsContainedDeclarations() {
-		panic(fmt.Sprintf("Type %v does not support contained declarations.", b.thisType))
-	}
-	mojomEnum.RegisterWithDescriptor(b.fullyQualifiedName)
-	b.containedDeclarations.enumKeys =
-		append(b.containedDeclarations.enumKeys, mojomEnum.typeKey)
+func (c DeclarationContainer) AddEnum(mojomEnum *MojomEnum) {
+	mojomEnum.RegisterInScope(c.scope, "")
 }
 
 // Adds a declared constant to a this type, which must be an interface or struct.
-func (b UserDefinedTypeBase) AddConstant(declaredConst *UserDefinedConstant) {
-	if !b.thisType.SupportsContainedDeclarations() {
-		panic(fmt.Sprintf("Type %v does not support contained declarations.", b.thisType))
-	}
-	declaredConst.RegisterWithDescriptor(b.fullyQualifiedName)
-	b.containedDeclarations.constantKeys =
-		append(b.containedDeclarations.constantKeys, declaredConst.constantKey)
+func (c DeclarationContainer) AddConstant(declaredConst *UserDefinedConstant) {
+	declaredConst.RegisterInScope(c.scope, "")
 }
 
 /////////////////////////////////////////////////////////////
@@ -118,16 +113,25 @@ func (b UserDefinedTypeBase) AddConstant(declaredConst *UserDefinedConstant) {
 /////////////////////////////////////////////////////////////
 type MojomStruct struct {
 	UserDefinedTypeBase
+	DeclarationContainer
 
 	fields []StructField
 }
 
-func NewMojomStruct(simpleName string,
-	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *MojomStruct {
+func NewMojomStruct(simpleName string, attributes *Attributes) *MojomStruct {
 	mojomStruct := new(MojomStruct)
 	mojomStruct.fields = make([]StructField, 0)
-	mojomStruct.Init(simpleName, mojomStruct, attributes, file, descriptor)
+	mojomStruct.Init(simpleName, mojomStruct, attributes)
 	return mojomStruct
+}
+
+func (s *MojomStruct) InitScope(parentScope *Scope) *Scope {
+	file := parentScope.File()
+	if file == nil {
+		panic("parentScope must have file set.")
+	}
+	s.scope = NewScope(SCOPE_STRUCT, parentScope, s.simpleName, parentScope.File())
+	return s.scope
 }
 
 func (s *MojomStruct) AddField(field StructField) {
@@ -136,10 +140,6 @@ func (s *MojomStruct) AddField(field StructField) {
 
 func (MojomStruct) Kind() UserDefinedTypeKind {
 	return STRUCT_TYPE
-}
-
-func (s *MojomStruct) SupportsContainedDeclarations() bool {
-	return true
 }
 
 // This should be invoked some time after all of the fields have been added
@@ -213,31 +213,37 @@ type StructVersion struct {
 
 type MojomInterface struct {
 	UserDefinedTypeBase
+	DeclarationContainer
 
 	methodsByOrdinal map[int]*MojomMethod
 
 	methodsByName map[string]*MojomMethod
 }
 
-func NewMojomInterface(simpleName string,
-	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *MojomInterface {
+func NewMojomInterface(simpleName string, attributes *Attributes) *MojomInterface {
 	mojomInterface := new(MojomInterface)
 	mojomInterface.methodsByOrdinal = make(map[int]*MojomMethod)
 	mojomInterface.methodsByName = make(map[string]*MojomMethod)
-	mojomInterface.Init(simpleName, mojomInterface, attributes, file, descriptor)
+	mojomInterface.Init(simpleName, mojomInterface, attributes)
 	return mojomInterface
 }
 
-func (m *MojomInterface) AddMethod(method *MojomMethod) {
-	m.methodsByName[method.SimpleName] = method
+func (i *MojomInterface) InitScope(parentScope *Scope) *Scope {
+	file := parentScope.File()
+	if file == nil {
+		panic("parentScope must have file set.")
+	}
+	i.scope = NewScope(SCOPE_INTERFACE, parentScope,
+		i.simpleName, parentScope.File())
+	return i.scope
+}
+
+func (i *MojomInterface) AddMethod(method *MojomMethod) {
+	i.methodsByName[method.SimpleName] = method
 }
 
 func (MojomInterface) Kind() UserDefinedTypeKind {
 	return INTERFACE_TYPE
-}
-
-func (i *MojomInterface) SupportsContainedDeclarations() bool {
-	return true
 }
 
 func (m *MojomInterface) ComputeMethodOrdinals() {
@@ -293,20 +299,15 @@ type MojomUnion struct {
 	fields []UnionField
 }
 
-func NewMojomUnion(simpleName string,
-	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *MojomUnion {
+func NewMojomUnion(simpleName string, attributes *Attributes) *MojomUnion {
 	mojomUnion := new(MojomUnion)
 	mojomUnion.fields = make([]UnionField, 0)
-	mojomUnion.Init(simpleName, mojomUnion, attributes, file, descriptor)
+	mojomUnion.Init(simpleName, mojomUnion, attributes)
 	return mojomUnion
 }
 
 func (MojomUnion) Kind() UserDefinedTypeKind {
 	return UNION_TYPE
-}
-
-func (u *MojomUnion) SupportsContainedDeclarations() bool {
-	return false
 }
 
 type UnionField struct {
@@ -325,20 +326,15 @@ type MojomEnum struct {
 	values []EnumValue
 }
 
-func NewMojomEnum(simpleName string,
-	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *MojomEnum {
+func NewMojomEnum(simpleName string, attributes *Attributes) *MojomEnum {
 	mojomEnum := new(MojomEnum)
 	mojomEnum.values = make([]EnumValue, 0)
-	mojomEnum.Init(simpleName, mojomEnum, attributes, file, descriptor)
+	mojomEnum.Init(simpleName, mojomEnum, attributes)
 	return mojomEnum
 }
 
 func (MojomEnum) Kind() UserDefinedTypeKind {
 	return ENUM_TYPE
-}
-
-func (i *MojomEnum) SupportsContainedDeclarations() bool {
-	return false
 }
 
 type EnumValue struct {
@@ -355,7 +351,8 @@ type EnumValue struct {
 
 // This represents a Mojom constant declaration.
 type UserDefinedConstant struct {
-	TypeDeclarationData
+	attributes         *Attributes
+	simpleName         string
 	fullyQualifiedName string
 	constantKey        string
 
@@ -367,44 +364,30 @@ type UserDefinedConstant struct {
 }
 
 func NewUserDefinedConstant(simpleName string,
-	attributes *Attributes, file *MojomFile, descriptor *MojomDescriptor) *UserDefinedConstant {
+	attributes *Attributes) *UserDefinedConstant {
 	userDefinedConstant := new(UserDefinedConstant)
 	userDefinedConstant.simpleName = simpleName
 	userDefinedConstant.attributes = attributes
-	userDefinedConstant.file = file
-	userDefinedConstant.descriptor = descriptor
 	return userDefinedConstant
 }
 
-func (c *UserDefinedConstant) RegisterWithDescriptor(namespace string) {
-	c.fullyQualifiedName = namespace + "." + c.simpleName
+func (c *UserDefinedConstant) RegisterInScope(scope *Scope, namePrefix string) {
+	// Register in the given scope with the given namePrefix.
+	scope.constantsByName[namePrefix+c.simpleName] = c
+	// Then propogate the registration up the scope chain prepending the
+	// child scope's name to the namePrefix.
+	if scope.parentScope != nil {
+		c.RegisterInScope(scope.parentScope, scope.simpleName+"."+namePrefix)
+	}
+	c.fullyQualifiedName = scope.fullyQualifiedName + "." + c.simpleName
 	c.constantKey = computeTypeKey(c.fullyQualifiedName)
-	c.descriptor.constantsByKey[c.constantKey] = c
-	c.descriptor.constantKeysByFQName[c.fullyQualifiedName] = c.constantKey
+	scope.file.Descriptor.constantsByKey[c.constantKey] = c
+	scope.file.Descriptor.constantKeysByFQName[c.fullyQualifiedName] = c.constantKey
 }
 
 /////////////////////////////////////////////////////////////
 // Declaration Data
 /////////////////////////////////////////////////////////////
-
-type TypeDeclarationData struct {
-	simpleName            string
-	attributes            *Attributes
-	containedDeclarations *ContainedDeclarations
-	file                  *MojomFile
-	descriptor            *MojomDescriptor
-}
-
-func (t *TypeDeclarationData) String() string {
-	s := ""
-	if t.attributes != nil {
-		s = fmt.Sprintf("\n%s", t.attributes)
-	}
-	if t.containedDeclarations != nil {
-		s += fmt.Sprintf("\n%s", t.containedDeclarations)
-	}
-	return s
-}
 
 type ValueDeclarationData struct {
 	SimpleName      string
@@ -438,12 +421,4 @@ func NewAttributes() *Attributes {
 
 type MojomAttribute struct {
 	Key, Value string
-}
-
-type ContainedDeclarations struct {
-	// The type keys of enums declared in this namespace.
-	enumKeys []string
-
-	// The the constant keys of constants declared in this namespace.
-	constantKeys []string
 }

@@ -59,17 +59,18 @@ func (d *MojomDescriptor) Resolve() error {
 
 func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
 	scope := ref.scope
+	fmt.Println("***** Resolving " + ref.identifier)
 	for scope != nil {
-		fmt.Println("********Trying " + scope.FullyQualifiedName + "." + ref.identifier)
-		if key, ok := d.typeKeysByFQName[scope.FullyQualifiedName+"."+ref.identifier]; ok {
-			ref.resolvedType = d.typesByKey[key]
+		fmt.Println("********Trying  " + scope.String())
+		if resolved := scope.typesByName[ref.identifier]; resolved != nil {
+			ref.resolvedType = resolved
 			fmt.Println("worked!")
 			return true
 		}
-		scope = scope.ParentScope
+		scope = scope.Parent()
 	}
-	// Try one more time treating the identifier as already fully-qualified.
-	fmt.Println("********Trying " + ref.identifier)
+	// Try one more time in the global namespace.
+	fmt.Println("********Trying Global")
 	if key, ok := d.typeKeysByFQName[ref.identifier]; ok {
 		ref.resolvedType = d.typesByKey[key]
 		fmt.Println("worked!")

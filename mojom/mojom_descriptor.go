@@ -28,6 +28,8 @@ type MojomFile struct {
 	// be retrieved from the  MojomFileGraph.
 	Imports []string
 
+	Scope *Scope
+
 	// These are lists of *top-level* types defined in the file. They do
 	// not include enums and constants defined within structs, unions
 	// and interfaces.
@@ -38,9 +40,10 @@ type MojomFile struct {
 	Constants  []*UserDefinedConstant
 }
 
-func NewMojomFile(fileName string) *MojomFile {
+func NewMojomFile(fileName string, descriptor *MojomDescriptor) *MojomFile {
 	mojomFile := new(MojomFile)
 	mojomFile.FileName = fileName
+	mojomFile.Descriptor = descriptor
 	mojomFile.ModuleNamespace = ""
 	mojomFile.Imports = make([]string, 0)
 	mojomFile.Interfaces = make([]*MojomInterface, 0)
@@ -61,32 +64,37 @@ func (f *MojomFile) String() string {
 	return s
 }
 
+func (f *MojomFile) SetModuleNamespace(namespace string) *Scope {
+	f.Scope = NewScope(SCOPE_MODULE, nil, namespace, f)
+	return f.Scope
+}
+
 func (f *MojomFile) AddImport(fileName string) {
 	f.Imports = append(f.Imports, fileName)
 }
 
 func (f *MojomFile) AddInterface(mojomInterface *MojomInterface) {
-	mojomInterface.RegisterWithDescriptor(f.ModuleNamespace)
+	mojomInterface.RegisterInScope(f.Scope, "")
 	f.Interfaces = append(f.Interfaces, mojomInterface)
 }
 
 func (f *MojomFile) AddStruct(mojomStruct *MojomStruct) {
-	mojomStruct.RegisterWithDescriptor(f.ModuleNamespace)
+	mojomStruct.RegisterInScope(f.Scope, "")
 	f.Structs = append(f.Structs, mojomStruct)
 }
 
 func (f *MojomFile) AddEnum(mojomEnum *MojomEnum) {
-	mojomEnum.RegisterWithDescriptor(f.ModuleNamespace)
+	mojomEnum.RegisterInScope(f.Scope, "")
 	f.Enums = append(f.Enums, mojomEnum)
 }
 
 func (f *MojomFile) AddUnion(mojomUnion *MojomUnion) {
-	mojomUnion.RegisterWithDescriptor(f.ModuleNamespace)
+	mojomUnion.RegisterInScope(f.Scope, "")
 	f.Unions = append(f.Unions, mojomUnion)
 }
 
 func (f *MojomFile) AddConstant(declaredConst *UserDefinedConstant) {
-	declaredConst.RegisterWithDescriptor(f.ModuleNamespace)
+	declaredConst.RegisterInScope(f.Scope, "")
 	f.Constants = append(f.Constants, declaredConst)
 }
 
@@ -158,7 +166,7 @@ func (d *MojomDescriptor) String() string {
 }
 
 func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
-	mojomFile := NewMojomFile(fileName)
+	mojomFile := NewMojomFile(fileName, d)
 	mojomFile.Descriptor = d
 	d.mojomFiles = append(d.mojomFiles, mojomFile)
 	return mojomFile
