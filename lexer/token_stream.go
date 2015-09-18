@@ -9,9 +9,9 @@ type TokenStream interface {
 	// or returns the EOF token if the cursor is already past the end.
 	PeekNext() Token
 
-	// Advances the cursor in the stream and returns true, or else returns
-	// false if the cursor is already past the end of the stream.
-	ConsumeNext() bool
+	// Advances the cursor in the stream or does nothing if the cursor is
+	// already past the end of the stream
+	ConsumeNext()
 }
 
 func EOFToken() Token {
@@ -35,13 +35,11 @@ func (s *TokenChan) PeekNext() (token Token) {
 	return s.nextToken
 }
 
-func (s *TokenChan) ConsumeNext() bool {
+func (s *TokenChan) ConsumeNext() {
 	if t, open := <-s.tokenChan; open {
 		s.nextToken = t
-		return true
 	} else {
 		s.nextToken = EOFToken()
-		return false
 	}
 }
 
@@ -57,10 +55,9 @@ func (slice *TokenSlice) PeekNext() (token Token) {
 	return
 }
 
-func (slice *TokenSlice) ConsumeNext() bool {
+func (slice *TokenSlice) ConsumeNext() {
 	if len(*(slice)) == 0 {
-		return false
+		return
 	}
 	(*slice) = (*slice)[1:]
-	return true
 }

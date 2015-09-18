@@ -169,65 +169,6 @@ func (d *MojomDescriptor) RegisterUnresolvedTypeReference(typeReference *TypeRef
 }
 
 ///////////////////////////////////////////////////////////////////////
-/// Type Resolution in a MojomDescriptor
-/// //////////////////////////////////////////////////////////////////
-
-func (d *MojomDescriptor) Resolve() (resolved bool) {
-	typesResolved := true
-	for i, ref := range d.unresolvedTypeReferences {
-		if ref != nil {
-			if d.resolveTypeRef(ref) {
-				d.unresolvedTypeReferences[i] = nil
-			} else {
-				typesResolved = false
-			}
-		}
-	}
-	if typesResolved {
-		d.unresolvedTypeReferences = d.unresolvedTypeReferences[0:0]
-	}
-
-	constantsResolved := true
-	for i, ref := range d.unresolvedConstantReferences {
-		if ref != nil {
-			if d.resolveConstantRef(ref) {
-				d.unresolvedConstantReferences[i] = nil
-			} else {
-				constantsResolved = false
-			}
-		}
-	}
-	if constantsResolved {
-		d.unresolvedTypeReferences = d.unresolvedTypeReferences[0:0]
-	}
-	return typesResolved && constantsResolved
-}
-
-func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
-	scope := ref.scope
-	for scope != nil {
-		if key, ok := d.typeKeysByFQName[scope.FullyQualifiedName+ref.identifier]; ok {
-			ref.resolvedType = d.typesByKey[key]
-			return true
-		}
-		scope = scope.ParentScope
-	}
-	return false
-}
-
-func (d *MojomDescriptor) resolveConstantRef(ref *ConstantOccurrence) (resolved bool) {
-	return false
-}
-
-func (d *MojomDescriptor) resolveTypeRefInScope(ref *TypeReference, scope *Scope) bool {
-	if key, ok := d.typeKeysByFQName[scope.FullyQualifiedName+ref.identifier]; ok {
-		ref.resolvedType = d.typesByKey[key]
-		return true
-	}
-	return false
-}
-
-///////////////////////////////////////////////////////////////////////
 /// Miscelleneous utilities
 /// //////////////////////////////////////////////////////////////////
 

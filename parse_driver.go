@@ -4,12 +4,42 @@ import (
 	"fmt"
 	"github.com/rudominer/mojom_parser/mojom"
 	"github.com/rudominer/mojom_parser/parser"
+	"io/ioutil"
+	"os"
 )
+
+type FileReference struct {
+	importedFrom  *mojom.MojomFile
+	specifiedPath string
+}
+
+func (f FileReference) String() string {
+	if f.importedFrom != nil {
+		return fmt.Sprintf("file %s imported from file %s",
+			f.specifiedPath, f.importedFrom.FileName)
+	} else {
+		return fmt.Sprintf("file %s", f.specifiedPath)
+	}
+
+}
 
 // FileProvider is an abstraction that allows us to mock out the file system
 // in tests.
 type FileProvider interface {
-	ProvideContents(fileName string) (contents string)
+	ProvideContents(fileReference FileReference) (contents string)
+}
+
+type OSFileProvider struct {
+}
+
+func (p OSFileProvider) ProvideContents(fileReference FileReference) (contents string) {
+	data, err := ioutil.ReadFile(fileReference.specifiedPath)
+	if err != nil {
+		fmt.Printf("\nError while reading %s: %s\n\n",
+			fileReference, err)
+		os.Exit(1)
+	}
+	return string(data)
 }
 
 type ParseResult struct {
@@ -18,65 +48,61 @@ type ParseResult struct {
 }
 
 type ParseDriver struct {
-	descriptor          *mojom.MojomDescriptor
-	err                 error
-	fileProvider        FileProvider
-	fileNamesToBeParsed []string
+	descriptor     *mojom.MojomDescriptor
+	err            error
+	fileProvider   FileProvider
+	filesToProcess []FileReference
 }
 
-func NewParseDriver(fileProvider FileProvider) ParseDriver {
-	return ParseDriver{fileProvider: fileProvider}
+func NewParseDriver() ParseDriver {
+	return ParseDriver{fileProvider: OSFileProvider{}}
 }
 
 func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
 	d.descriptor = mojom.NewMojomDescriptor()
-	d.fileNamesToBeParsed = fileNames
-	for len(d.fileNamesToBeParsed) > 0 {
-		nextFileName := d.fileNamesToBeParsed[0]
-		d.fileNamesToBeParsed = d.fileNamesToBeParsed[1:]
-		if !d.descriptor.ContainsFile(nextFileName) {
-			contents := d.fileProvider.ProvideContents(nextFileName)
-			parser := parser.NewParser(nextFileName, contents, d.descriptor)
+	d.filesToProcess = make([]FileReference, len(fileNames))
+	for i, fileName := range fileNames {
+		d.filesToProcess[i] = FileReference{specifiedPath: fileName}
+	}
+	for len(d.filesToProcess) > 0 {
+		nextFileRef := d.filesToProcess[0]
+		d.filesToProcess = d.filesToProcess[1:]
+		if !d.descriptor.ContainsFile(nextFileRef.specifiedPath) {
+			contents := d.fileProvider.ProvideContents(nextFileRef)
+			parser := parser.NewParser(nextFileRef.specifiedPath,
+				contents, d.descriptor)
 			parser.Parse()
 			if !parser.OK() {
-				d.err = parser.Error()
+				d.err = fmt.Errorf("\nError while parsing %s: %s\n",
+					nextFileRef, parser.Error().Error())
 				return ParseResult{Err: d.err, Descriptor: d.descriptor}
 			}
 			mojomFile := parser.GetMojomFile()
 			for _, importedFile := range mojomFile.Imports {
 				if !d.descriptor.ContainsFile(importedFile) {
-					d.fileNamesToBeParsed = append(d.fileNamesToBeParsed, importedFile)
+					d.filesToProcess = append(d.filesToProcess,
+						FileReference{importedFrom: mojomFile,
+							specifiedPath: importedFile})
 				}
 			}
 
 		}
 	}
-	if !d.descriptor.Resolve() {
-		// TODO(rudominer) The error message should list the references.
-		d.err = fmt.Errorf("There are still some unresolved references.")
-	}
-	return ParseResult{Err: d.err, Descriptor: d.descriptor}
+
+	resolutionError := d.descriptor.Resolve()
+
+	return ParseResult{Err: resolutionError, Descriptor: d.descriptor}
 }
 
-func getListOfFilesFromArgs() []string {
-	// TODO(rudominer)
-	return nil
-}
-
-func getFileProvider() FileProvider {
-	// TODO(rudominer)
-	return nil
-}
-
-func writeSerializedMojomDescriptor([]byte) {
-	// TODO(rudominer)
+func writeSerializedMojomDescriptor(data []byte) {
+	fmt.Println(string(data))
 }
 
 func main() {
-	parserDriver := NewParseDriver(getFileProvider())
-	result := parserDriver.ParseFiles(getListOfFilesFromArgs())
+	parserDriver := NewParseDriver()
+	result := parserDriver.ParseFiles(os.Args[1:])
 	if result.Err != nil {
-		fmt.Printf("Errors: %s", result.Err.Error())
+		fmt.Printf("%s", result.Err.Error())
 	}
 	serialized := result.Descriptor.Serialize()
 	writeSerializedMojomDescriptor(serialized)

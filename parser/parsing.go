@@ -282,8 +282,8 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 		if !p.matchSemicolon() {
 			return
 		}
-		p.mojomFile.AddImport(fileName)
 
+		p.mojomFile.AddImport(fileName[1 : len(fileName)-1])
 		nextToken = p.peekNextToken("No Mojom declarations found.")
 		p.popNode()
 		if !p.OK() {
@@ -365,9 +365,17 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 		nextToken := p.peekNextToken("I was parsing an interface body.")
 		switch nextToken.Kind {
 		case lexer.NAME:
-			mojomInterface.AddMethod(p.parseMethodDecl(attributes))
+			if method := p.parseMethodDecl(attributes); p.OK() {
+				mojomInterface.AddMethod(method)
+				break
+			}
+			return false
 		case lexer.ENUM:
-			mojomInterface.AddEnum(p.parseEnumDecl(attributes))
+			if enum := p.parseEnumDecl(attributes); p.OK() {
+				mojomInterface.AddEnum(enum)
+				break
+			}
+			return false
 		case lexer.CONST:
 			mojomInterface.AddConstant(p.parseConstDecl(attributes))
 		case lexer.RBRACE:
@@ -725,15 +733,13 @@ func (p *Parser) checkEOF() (eof bool) {
 	return
 }
 
-// Advances the cursor in the stream and returns true, or else returns
-// false if the cursor is already past the end of the stream.
-func (p *Parser) consumeNextToken() bool {
-	token := p.inputStream.PeekNext()
-	if p.inputStream.ConsumeNext() {
-		p.lastConsumed = token
-		return true
-	}
-	return false
+// Sets p.lastConsumed to the value of the next available token in the
+// stream and then advances the stream cursor. If the cursor is already
+// past the end of the stream then it sets p.lastConsumed to the EOF
+// token.
+func (p *Parser) consumeNextToken() {
+	p.lastConsumed = p.inputStream.PeekNext()
+	p.inputStream.ConsumeNext()
 }
 
 func (p *Parser) match(expectedKind lexer.TokenKind) bool {

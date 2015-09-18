@@ -29,7 +29,7 @@ func buildTestFileContents() string {
 		handle<message_pipe> h1;
 		handle h2;
 		handle<message_pipe>? h3;
-		largo.MyStruct aStruct;
+		largo.MyStruct& aStruct;
 	};
 	`
 	return contents

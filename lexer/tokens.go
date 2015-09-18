@@ -96,6 +96,8 @@ func (tokenKind TokenKind) String() string {
 		return "','"
 	case DOT:
 		return "'.'"
+	case AMP:
+		return "'&'"
 	case QSTN:
 		return "'?'"
 	case EQUALS:

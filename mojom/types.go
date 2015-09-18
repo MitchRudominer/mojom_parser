@@ -478,6 +478,15 @@ type ConstantOccurrence struct {
 	resolvedConstant *UserDefinedConstant
 }
 
+func (c ConstantOccurrence) String() string {
+	// TODO(rudominer)
+	return ""
+}
+
+func (t ConstantOccurrence) FullString() string {
+	return fmt.Sprintf("%s Scope: %s", t.String(), t.Scope.String())
+}
+
 /////////////////////////////////////////////////////////////
 // Constant Values
 /////////////////////////////////////////////////////////////
