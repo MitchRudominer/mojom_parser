@@ -2,6 +2,7 @@ package mojom
 
 import (
 	"fmt"
+	"github.com/rudominer/mojom_parser/lexer"
 )
 
 // The different kinds of Mojom types. We divide the types into five categories:
@@ -351,8 +352,10 @@ type TypeReference struct {
 	// used to resolve the identifier.
 	scope *Scope
 
-	// The identifier as it appears at the reference site.
+	// The type identifier as it appears at the reference site.
 	identifier string
+
+	token lexer.Token
 
 	// If this type reference was used as a constant value then resolvedTye
 	// must eventually be an enum type
@@ -362,9 +365,10 @@ type TypeReference struct {
 }
 
 func NewTypeReference(identifier string, nullable bool,
-	interfaceRequest bool, scope *Scope) *TypeReference {
+	interfaceRequest bool, scope *Scope, token lexer.Token) *TypeReference {
 	return &TypeReference{identifier: identifier,
-		nullable: nullable, interfaceRequest: interfaceRequest, scope: scope}
+		nullable: nullable, interfaceRequest: interfaceRequest,
+		scope: scope, token: token}
 }
 
 type ScopeKind int
@@ -416,11 +420,7 @@ func NewScope(kind ScopeKind, parentScope *Scope,
 }
 
 func (s *Scope) String() string {
-	str := fmt.Sprintf("%s:%s", s.kind, s.fullyQualifiedName)
-	if s.parentScope != nil {
-		str = fmt.Sprintf("%s --> %s", str, s.parentScope)
-	}
-	return str
+	return fmt.Sprintf("%s %s", s.kind, s.simpleName)
 }
 
 func (s *Scope) Parent() *Scope {
@@ -469,8 +469,11 @@ func (t TypeReference) String() string {
 	return fmt.Sprintf("%s%s%s", t.identifier, interfaceRequest, nullable)
 }
 
-func (t TypeReference) FullString() string {
-	return fmt.Sprintf("%s Scope: %s", t.String(), t.scope.String())
+func (t TypeReference) LongString() string {
+	//return fmt.Sprintf("%s (%s) %s. (In %s.)", t.scope.File().FileName,
+	//	t.token.LocationString(), t.identifier, t.scope)
+	return fmt.Sprintf("%s %s:%s. (In %s.)", t.identifier,
+		t.scope.File().FileName, t.token.LocationString(), t.scope)
 }
 
 /////////////////////////////////////////////////////////////
@@ -491,6 +494,8 @@ type ConstantOccurrence struct {
 	// used to resolve the identifier.
 	Scope *Scope
 
+	token lexer.Token
+
 	identifier       string
 	resolvedConstant *UserDefinedConstant
 }
@@ -500,7 +505,7 @@ func (c ConstantOccurrence) String() string {
 	return ""
 }
 
-func (t ConstantOccurrence) FullString() string {
+func (t ConstantOccurrence) LongString() string {
 	return fmt.Sprintf("%s Scope: %s", t.String(), t.Scope.String())
 }
 

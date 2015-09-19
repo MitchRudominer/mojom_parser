@@ -59,7 +59,6 @@ func (b *UserDefinedTypeBase) Init(simpleName string, thisType UserDefinedType,
 // type is being added.
 func (b *UserDefinedTypeBase) RegisterInScope(scope *Scope, namePrefix string) {
 	// Register in the given scope with the given namePrefix.
-	fmt.Println("**** Adding " + namePrefix + b.SimpleName() + " to " + scope.String())
 	scope.typesByName[namePrefix+b.SimpleName()] = b.thisType
 	// Then propogate the registration up the scope chain prepending the
 	// child scope's name to the namePrefix.

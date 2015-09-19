@@ -40,18 +40,19 @@ func (d *MojomDescriptor) Resolve() error {
 		return nil
 	}
 
-	errorMessage := "There are still some unresolved references. " +
-		"Perhaps you are missing an import statment?\n"
+	errorMessage := "There are still some unresolved references.\n"
 	if numUnresolvedTypeReferences > 0 {
-		errorMessage += "The following type references are unresolved:\n"
+		errorMessage += "\nNo type defintions found for the following identifiers:\n"
+		errorMessage += "-------------------------------------------------------\n"
 		for _, ref := range d.unresolvedTypeReferences {
-			errorMessage += fmt.Sprintf("%s\n", ref.FullString())
+			errorMessage += fmt.Sprintf("%s\n", ref.LongString())
 		}
 	}
 	if numUnresolvedConstantReferences > 0 {
-		errorMessage += "\nThe following constant references are unresolved:\n"
+		errorMessage += "\nNo constant defintions found for the following identifiers:\n"
+		errorMessage += "-----------------------------------------------------------\n"
 		for _, ref := range d.unresolvedConstantReferences {
-			errorMessage += fmt.Sprintf("%s\n", ref.FullString())
+			errorMessage += fmt.Sprintf("%s\n", ref.LongString())
 		}
 	}
 	return fmt.Errorf(errorMessage)
@@ -59,21 +60,16 @@ func (d *MojomDescriptor) Resolve() error {
 
 func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
 	scope := ref.scope
-	fmt.Println("***** Resolving " + ref.identifier)
 	for scope != nil {
-		fmt.Println("********Trying  " + scope.String())
 		if resolved := scope.typesByName[ref.identifier]; resolved != nil {
 			ref.resolvedType = resolved
-			fmt.Println("worked!")
 			return true
 		}
 		scope = scope.Parent()
 	}
 	// Try one more time in the global namespace.
-	fmt.Println("********Trying Global")
 	if key, ok := d.typeKeysByFQName[ref.identifier]; ok {
 		ref.resolvedType = d.typesByKey[key]
-		fmt.Println("worked!")
 		return true
 	}
 	return false

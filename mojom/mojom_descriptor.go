@@ -151,7 +151,7 @@ func (d *MojomDescriptor) SprintMojomFileNames() (s string) {
 
 func (d *MojomDescriptor) SprintUnresolvedTypeReference() (s string) {
 	for _, r := range d.unresolvedTypeReferences {
-		s += fmt.Sprintf("%s\n", r.FullString())
+		s += fmt.Sprintf("%s\n", r.LongString())
 	}
 	return
 }

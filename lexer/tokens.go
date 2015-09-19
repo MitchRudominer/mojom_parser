@@ -147,7 +147,7 @@ type Token struct {
 // like the following:
 // Unexpected token at line 5, column 6: '###'. Expecting '{'.
 func (t Token) LocationString() string {
-	return fmt.Sprintf("line %d, column %d", t.LineNo+1, t.LinePos+1)
+	return fmt.Sprintf("%d,%d", t.LineNo+1, t.LinePos+1)
 }
 
 // Is this the EOF token that represent the end of the token stream?

@@ -260,7 +260,7 @@ func (p *Parser) parseModuleDecl() (moduleIdentifier string) {
 	p.pushChildNode("moduleDecl")
 	defer p.popNode()
 
-	moduleIdentifier = p.parseIdentifier()
+	moduleIdentifier, _ = p.parseIdentifier()
 	p.matchSemicolon()
 	return
 }
@@ -668,14 +668,14 @@ func (p *Parser) parseStringLiteral() (literal string) {
 	return p.readText(lexer.STRING_LITERAL)
 }
 
-func (p *Parser) parseIdentifier() (identifier string) {
+func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
 	p.pushChildNode("identifier")
 	defer p.popNode()
 
-	firstToken := p.peekNextToken("Expecting an identifier.")
+	firstToken = p.peekNextToken("Expecting an identifier.")
 	if firstToken.Kind != lexer.NAME {
 		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting an identifier.",
 			firstToken.LocationString(), firstToken)
@@ -900,7 +900,7 @@ func (p *Parser) readUserDefinedType() mojom.Type {
 	if !p.OK() {
 		return nil
 	}
-	identifier := p.parseIdentifier()
+	identifier, identifierToken := p.parseIdentifier()
 	if !p.OK() {
 		return nil
 	}
@@ -913,7 +913,7 @@ func (p *Parser) readUserDefinedType() mojom.Type {
 		return nil
 	}
 	userDefinedType := mojom.NewTypeReference(identifier, nullable,
-		interfaceRequest, p.currentScope)
+		interfaceRequest, p.currentScope, identifierToken)
 	p.mojomDescriptor.RegisterUnresolvedTypeReference(userDefinedType)
 	return userDefinedType
 }
