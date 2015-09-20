@@ -357,7 +357,7 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 	defer p.popNode()
 
 	// The interface body forms a new scope.
-	p.pushScope(mojomInterface.InitScope(p.currentScope))
+	p.pushScope(mojomInterface.InitAsScope(p.currentScope))
 	defer p.popScope()
 
 	rbraceFound := false
@@ -549,7 +549,7 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 	defer p.popNode()
 
 	// The struct body forms a new scope.
-	p.pushScope(mojomStruct.InitScope(p.currentScope))
+	p.pushScope(mojomStruct.InitAsScope(p.currentScope))
 	defer p.popScope()
 
 	rbraceFound := false

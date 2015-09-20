@@ -59,22 +59,11 @@ func (d *MojomDescriptor) Resolve() error {
 }
 
 func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
-	scope := ref.scope
-	for scope != nil {
-		if resolved := scope.typesByName[ref.identifier]; resolved != nil {
-			ref.resolvedType = resolved
-			return true
-		}
-		scope = scope.Parent()
-	}
-	// Try one more time in the global namespace.
-	if key, ok := d.typeKeysByFQName[ref.identifier]; ok {
-		ref.resolvedType = d.typesByKey[key]
-		return true
-	}
-	return false
+	ref.resolvedType = ref.scope.LookupType(ref.identifier)
+	return ref.resolvedType != nil
 }
 
 func (d *MojomDescriptor) resolveConstantRef(ref *ConstantOccurrence) (resolved bool) {
-	return false
+	ref.resolvedConstant = ref.Scope.LookupConstant(ref.identifier)
+	return ref.resolvedConstant != nil
 }

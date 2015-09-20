@@ -371,66 +371,6 @@ func NewTypeReference(identifier string, nullable bool,
 		scope: scope, token: token}
 }
 
-type ScopeKind int
-
-const (
-	SCOPE_MODULE ScopeKind = iota
-	SCOPE_INTERFACE
-	SCOPE_STRUCT
-)
-
-func (k ScopeKind) String() string {
-	switch k {
-	case SCOPE_MODULE:
-		return "module"
-	case SCOPE_INTERFACE:
-		return "interface"
-	case SCOPE_STRUCT:
-		return "struct"
-	default:
-		panic(fmt.Sprintf("Unrecognized ScopeKind %d", k))
-	}
-}
-
-type Scope struct {
-	kind               ScopeKind
-	parentScope        *Scope
-	simpleName         string
-	fullyQualifiedName string
-	typesByName        map[string]UserDefinedType
-	constantsByName    map[string]*UserDefinedConstant
-	file               *MojomFile
-}
-
-func NewScope(kind ScopeKind, parentScope *Scope,
-	simpleName string, file *MojomFile) *Scope {
-	scope := new(Scope)
-	scope.parentScope = parentScope
-	scope.kind = kind
-	scope.simpleName = simpleName
-	scope.fullyQualifiedName = simpleName
-	if parentScope != nil {
-		scope.fullyQualifiedName =
-			parentScope.fullyQualifiedName + "." + simpleName
-	}
-	scope.typesByName = make(map[string]UserDefinedType)
-	scope.constantsByName = make(map[string]*UserDefinedConstant)
-	scope.file = file
-	return scope
-}
-
-func (s *Scope) String() string {
-	return fmt.Sprintf("%s %s", s.kind, s.simpleName)
-}
-
-func (s *Scope) Parent() *Scope {
-	return s.parentScope
-}
-
-func (s *Scope) File() *MojomFile {
-	return s.file
-}
-
 func (TypeReference) Kind() TypeKind {
 	return TYPE_REFERENCE
 }
@@ -470,10 +410,8 @@ func (t TypeReference) String() string {
 }
 
 func (t TypeReference) LongString() string {
-	//return fmt.Sprintf("%s (%s) %s. (In %s.)", t.scope.File().FileName,
-	//	t.token.LocationString(), t.identifier, t.scope)
 	return fmt.Sprintf("%s %s:%s. (In %s.)", t.identifier,
-		t.scope.File().FileName, t.token.LocationString(), t.scope)
+		t.scope.file.FileName, t.token.LocationString(), t.scope)
 }
 
 /////////////////////////////////////////////////////////////
@@ -506,7 +444,8 @@ func (c ConstantOccurrence) String() string {
 }
 
 func (t ConstantOccurrence) LongString() string {
-	return fmt.Sprintf("%s Scope: %s", t.String(), t.Scope.String())
+	//return fmt.Sprintf("%s Scope: %s", t.String(), t.Scope.String())
+	return ""
 }
 
 /////////////////////////////////////////////////////////////

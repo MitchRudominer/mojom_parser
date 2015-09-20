@@ -23,6 +23,7 @@ type UserDefinedType interface {
 	TypeKey() string
 	SimpleName() string
 	FullyQualifiedName() string
+	Scope() *Scope
 	Identical(other UserDefinedType) bool
 }
 
@@ -34,7 +35,7 @@ type UserDefinedTypeBase struct {
 	simpleName         string
 	fullyQualifiedName string
 	typeKey            string
-	file               *MojomFile
+	scope              *Scope
 }
 
 // This method is invoked from the constructors for the containing types:
@@ -47,28 +48,18 @@ func (b *UserDefinedTypeBase) Init(simpleName string, thisType UserDefinedType,
 }
 
 // Generates the fully-qualified name and the type key and registers the
-// type with the Mojom Descriptor.
+// type in the given |scope| and also with the associated MojomDescriptor.
 //
-// This method is invoked when the containing type is added to its container.
-// This happens in MojomFile.AddInterface(), MojomFile.AddStruct()
-// MojomFile.AddEnum(), MojomFile.AddUnion() and also
-// UserDefinedTypeBase.AddEnum() for when enums are added to interfaces
-// and structs.
-//
-// namespace is the fully-qualified name of the container to which the
-// type is being added.
-func (b *UserDefinedTypeBase) RegisterInScope(scope *Scope, namePrefix string) {
+// This method is invoked when a UserDefinedType is added to its container,
+// which may be either a file or a different UserDefinedType.
+func (b *UserDefinedTypeBase) RegisterInScope(scope *Scope) {
 	// Register in the given scope with the given namePrefix.
-	scope.typesByName[namePrefix+b.SimpleName()] = b.thisType
-	// Then propogate the registration up the scope chain prepending the
-	// child scope's name to the namePrefix.
-	if scope.parentScope != nil {
-		b.RegisterInScope(scope.parentScope, scope.simpleName+"."+namePrefix)
-	}
+	scope.RegisterType(b.thisType)
+	b.scope = scope
+
 	b.fullyQualifiedName = scope.fullyQualifiedName + "." + b.simpleName
 	b.typeKey = computeTypeKey(b.fullyQualifiedName)
-	scope.file.Descriptor.typesByKey[b.typeKey] = b.thisType
-	scope.file.Descriptor.typeKeysByFQName[b.fullyQualifiedName] = b.typeKey
+	scope.descriptor.typesByKey[b.typeKey] = b.thisType
 }
 
 func (b UserDefinedTypeBase) String() string {
@@ -87,6 +78,10 @@ func (b UserDefinedTypeBase) FullyQualifiedName() string {
 	return b.fullyQualifiedName
 }
 
+func (b UserDefinedTypeBase) Scope() *Scope {
+	return b.scope
+}
+
 func (b UserDefinedTypeBase) Identical(other UserDefinedType) bool {
 	return b.typeKey == other.TypeKey()
 }
@@ -94,17 +89,17 @@ func (b UserDefinedTypeBase) Identical(other UserDefinedType) bool {
 // Some user-defined types, namely interfaces and structs, may act as
 // namespaced scopes for declarations of constants and enums.
 type DeclarationContainer struct {
-	scope *Scope
+	containedDeclarations *Scope
 }
 
 // Adds an enum to a this type, which must be an interface or struct.
 func (c DeclarationContainer) AddEnum(mojomEnum *MojomEnum) {
-	mojomEnum.RegisterInScope(c.scope, "")
+	mojomEnum.RegisterInScope(c.containedDeclarations)
 }
 
 // Adds a declared constant to a this type, which must be an interface or struct.
 func (c DeclarationContainer) AddConstant(declaredConst *UserDefinedConstant) {
-	declaredConst.RegisterInScope(c.scope, "")
+	declaredConst.RegisterInScope(c.containedDeclarations)
 }
 
 /////////////////////////////////////////////////////////////
@@ -124,13 +119,9 @@ func NewMojomStruct(simpleName string, attributes *Attributes) *MojomStruct {
 	return mojomStruct
 }
 
-func (s *MojomStruct) InitScope(parentScope *Scope) *Scope {
-	file := parentScope.File()
-	if file == nil {
-		panic("parentScope must have file set.")
-	}
-	s.scope = NewScope(SCOPE_STRUCT, parentScope, s.simpleName, parentScope.File())
-	return s.scope
+func (s *MojomStruct) InitAsScope(parentScope *Scope) *Scope {
+	s.containedDeclarations = NewLexicalScope(SCOPE_STRUCT, parentScope, s.simpleName, parentScope.file)
+	return s.containedDeclarations
 }
 
 func (s *MojomStruct) AddField(field StructField) {
@@ -227,14 +218,10 @@ func NewMojomInterface(simpleName string, attributes *Attributes) *MojomInterfac
 	return mojomInterface
 }
 
-func (i *MojomInterface) InitScope(parentScope *Scope) *Scope {
-	file := parentScope.File()
-	if file == nil {
-		panic("parentScope must have file set.")
-	}
-	i.scope = NewScope(SCOPE_INTERFACE, parentScope,
-		i.simpleName, parentScope.File())
-	return i.scope
+func (i *MojomInterface) InitAsScope(parentScope *Scope) *Scope {
+	i.containedDeclarations = NewLexicalScope(SCOPE_INTERFACE, parentScope,
+		i.simpleName, parentScope.file)
+	return i.containedDeclarations
 }
 
 func (i *MojomInterface) AddMethod(method *MojomMethod) {
@@ -362,26 +349,11 @@ type UserDefinedConstant struct {
 	value ConstantOccurrence
 }
 
-func NewUserDefinedConstant(simpleName string,
-	attributes *Attributes) *UserDefinedConstant {
-	userDefinedConstant := new(UserDefinedConstant)
-	userDefinedConstant.simpleName = simpleName
-	userDefinedConstant.attributes = attributes
-	return userDefinedConstant
-}
-
-func (c *UserDefinedConstant) RegisterInScope(scope *Scope, namePrefix string) {
-	// Register in the given scope with the given namePrefix.
-	scope.constantsByName[namePrefix+c.simpleName] = c
-	// Then propogate the registration up the scope chain prepending the
-	// child scope's name to the namePrefix.
-	if scope.parentScope != nil {
-		c.RegisterInScope(scope.parentScope, scope.simpleName+"."+namePrefix)
-	}
+func (c *UserDefinedConstant) RegisterInScope(scope *Scope) {
+	scope.RegisterConstant(c)
 	c.fullyQualifiedName = scope.fullyQualifiedName + "." + c.simpleName
 	c.constantKey = computeTypeKey(c.fullyQualifiedName)
 	scope.file.Descriptor.constantsByKey[c.constantKey] = c
-	scope.file.Descriptor.constantKeysByFQName[c.fullyQualifiedName] = c.constantKey
 }
 
 /////////////////////////////////////////////////////////////

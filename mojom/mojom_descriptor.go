@@ -28,7 +28,7 @@ type MojomFile struct {
 	// be retrieved from the  MojomFileGraph.
 	Imports []string
 
-	Scope *Scope
+	FileScope *Scope
 
 	// These are lists of *top-level* types defined in the file. They do
 	// not include enums and constants defined within structs, unions
@@ -65,8 +65,9 @@ func (f *MojomFile) String() string {
 }
 
 func (f *MojomFile) SetModuleNamespace(namespace string) *Scope {
-	f.Scope = NewScope(SCOPE_MODULE, nil, namespace, f)
-	return f.Scope
+	f.ModuleNamespace = namespace
+	f.FileScope = NewLexicalScope(SCOPE_FILE_MODULE, nil, namespace, f)
+	return f.FileScope
 }
 
 func (f *MojomFile) AddImport(fileName string) {
@@ -74,27 +75,27 @@ func (f *MojomFile) AddImport(fileName string) {
 }
 
 func (f *MojomFile) AddInterface(mojomInterface *MojomInterface) {
-	mojomInterface.RegisterInScope(f.Scope, "")
+	mojomInterface.RegisterInScope(f.FileScope)
 	f.Interfaces = append(f.Interfaces, mojomInterface)
 }
 
 func (f *MojomFile) AddStruct(mojomStruct *MojomStruct) {
-	mojomStruct.RegisterInScope(f.Scope, "")
+	mojomStruct.RegisterInScope(f.FileScope)
 	f.Structs = append(f.Structs, mojomStruct)
 }
 
 func (f *MojomFile) AddEnum(mojomEnum *MojomEnum) {
-	mojomEnum.RegisterInScope(f.Scope, "")
+	mojomEnum.RegisterInScope(f.FileScope)
 	f.Enums = append(f.Enums, mojomEnum)
 }
 
 func (f *MojomFile) AddUnion(mojomUnion *MojomUnion) {
-	mojomUnion.RegisterInScope(f.Scope, "")
+	mojomUnion.RegisterInScope(f.FileScope)
 	f.Unions = append(f.Unions, mojomUnion)
 }
 
 func (f *MojomFile) AddConstant(declaredConst *UserDefinedConstant) {
-	declaredConst.RegisterInScope(f.Scope, "")
+	declaredConst.RegisterInScope(f.FileScope)
 	f.Constants = append(f.Constants, declaredConst)
 }
 
@@ -106,31 +107,41 @@ type MojomDescriptor struct {
 	// Note that UserDefinedType is an interface whereas UserDefinedConstant
 	// is a struct. That explains why we handle the former by value and
 	// the latter by pointer.
-	typesByKey       map[string]UserDefinedType
-	typeKeysByFQName map[string]string
+	typesByKey     map[string]UserDefinedType
+	constantsByKey map[string]*UserDefinedConstant
+	mojomFiles     []*MojomFile
 
-	constantsByKey       map[string]*UserDefinedConstant
-	constantKeysByFQName map[string]string
-
-	mojomFiles []*MojomFile
-
+	scopesByName                 map[string]*Scope
 	unresolvedTypeReferences     []*TypeReference
 	unresolvedConstantReferences []*ConstantOccurrence
 }
 
 func NewMojomDescriptor() *MojomDescriptor {
 	descriptor := new(MojomDescriptor)
+
 	descriptor.typesByKey = make(map[string]UserDefinedType)
-	descriptor.typeKeysByFQName = make(map[string]string)
-
 	descriptor.constantsByKey = make(map[string]*UserDefinedConstant)
-	descriptor.constantKeysByFQName = make(map[string]string)
-
 	descriptor.mojomFiles = make([]*MojomFile, 0)
+	descriptor.scopesByName = make(map[string]*Scope)
+	// The global namespace scope.
+	descriptor.scopesByName[""] = NewAbstractModuleScope("", descriptor)
 
 	descriptor.unresolvedTypeReferences = make([]*TypeReference, 0)
 	descriptor.unresolvedConstantReferences = make([]*ConstantOccurrence, 0)
 	return descriptor
+}
+
+func (d *MojomDescriptor) getAbstractModuleScope(fullyQualifiedName string) *Scope {
+	if scope, ok := d.scopesByName[fullyQualifiedName]; ok {
+		return scope
+	}
+	scope := NewAbstractModuleScope(fullyQualifiedName, d)
+	d.scopesByName[fullyQualifiedName] = scope
+	return scope
+}
+
+func (d *MojomDescriptor) getGlobalScobe() *Scope {
+	return d.scopesByName[""]
 }
 
 func (d *MojomDescriptor) Serialize() []byte {
@@ -157,12 +168,7 @@ func (d *MojomDescriptor) SprintUnresolvedTypeReference() (s string) {
 }
 
 func (d *MojomDescriptor) String() string {
-	s := fmt.Sprintf("typesByKey:\n----------\n%s", SprintMapValueNames(d.typesByKey))
-	s += fmt.Sprintf("typeKeysByFQName:\n----------------\n%v", d.typeKeysByFQName)
-	s += fmt.Sprintf("\nunresolvedTypeReferences:\n------------------------\n%s\n",
-		d.SprintUnresolvedTypeReference())
-	s += fmt.Sprintf("\nMojomFiles:\n %s\n", d.SprintMojomFileNames())
-	return s
+	return "TODO"
 }
 
 func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
