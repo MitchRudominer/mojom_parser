@@ -14,6 +14,21 @@ const (
 	UNION_TYPE
 )
 
+func (k UserDefinedTypeKind) String() string {
+	switch k {
+	case STRUCT_TYPE:
+		return "struct"
+	case INTERFACE_TYPE:
+		return "interface"
+	case ENUM_TYPE:
+		return "enum"
+	case UNION_TYPE:
+		return "union"
+	default:
+		panic(fmt.Sprintf("Unknown UserDefinedTypeKind: %d", k))
+	}
+}
+
 /////////////////////////////////////////////////////////////
 // The UserDefinedType interface. This is implemented by
 // MojomStruct, MojomInterface, MojomEnum and MojomUnion
@@ -52,18 +67,25 @@ func (b *UserDefinedTypeBase) Init(simpleName string, thisType UserDefinedType,
 //
 // This method is invoked when a UserDefinedType is added to its container,
 // which may be either a file or a different UserDefinedType.
-func (b *UserDefinedTypeBase) RegisterInScope(scope *Scope) {
+func (b *UserDefinedTypeBase) RegisterInScope(scope *Scope) *DuplicateNameError {
 	// Register in the given scope with the given namePrefix.
-	scope.RegisterType(b.thisType)
+	if err := scope.RegisterType(b.thisType); err != nil {
+		return err
+	}
 	b.scope = scope
 
 	b.fullyQualifiedName = scope.fullyQualifiedName + "." + b.simpleName
 	b.typeKey = computeTypeKey(b.fullyQualifiedName)
 	scope.descriptor.typesByKey[b.typeKey] = b.thisType
+	return nil
 }
 
 func (b UserDefinedTypeBase) String() string {
-	return "TODO"
+	attributeString := ""
+	if b.attributes != nil {
+		attributeString = fmt.Sprintf("%s", b.attributes.List)
+	}
+	return fmt.Sprintf("%s%s", attributeString, b.simpleName)
 }
 
 func (b *UserDefinedTypeBase) TypeKey() string {
@@ -93,13 +115,13 @@ type DeclarationContainer struct {
 }
 
 // Adds an enum to a this type, which must be an interface or struct.
-func (c DeclarationContainer) AddEnum(mojomEnum *MojomEnum) {
-	mojomEnum.RegisterInScope(c.containedDeclarations)
+func (c DeclarationContainer) AddEnum(mojomEnum *MojomEnum) *DuplicateNameError {
+	return mojomEnum.RegisterInScope(c.containedDeclarations)
 }
 
 // Adds a declared constant to a this type, which must be an interface or struct.
-func (c DeclarationContainer) AddConstant(declaredConst *UserDefinedConstant) {
-	declaredConst.RegisterInScope(c.containedDeclarations)
+func (c DeclarationContainer) AddConstant(declaredConst *UserDefinedConstant) *DuplicateNameError {
+	return declaredConst.RegisterInScope(c.containedDeclarations)
 }
 
 /////////////////////////////////////////////////////////////
@@ -140,7 +162,7 @@ func (s *MojomStruct) ComputeFieldOrdinals() {
 
 func (m MojomStruct) String() string {
 	s := fmt.Sprintf("\n---------struct--------------\n")
-	s += fmt.Sprintf("%s", m.UserDefinedTypeBase)
+	s += fmt.Sprintf("%s\n", m.UserDefinedTypeBase)
 	s += "     Fields\n"
 	s += "     ------\n"
 	for _, field := range m.fields {
@@ -241,7 +263,7 @@ func (m *MojomInterface) String() string {
 		return "nil"
 	}
 	s := fmt.Sprintf("\n---------interface--------------\n")
-	s += fmt.Sprintf("%s", m.UserDefinedTypeBase)
+	s += fmt.Sprintf("%s\n", m.UserDefinedTypeBase)
 	s += "     Methods\n"
 	s += "     -------\n"
 	for _, method := range m.methodsByName {
@@ -349,11 +371,14 @@ type UserDefinedConstant struct {
 	value ConstantOccurrence
 }
 
-func (c *UserDefinedConstant) RegisterInScope(scope *Scope) {
-	scope.RegisterConstant(c)
+func (c *UserDefinedConstant) RegisterInScope(scope *Scope) *DuplicateNameError {
+	if err := scope.RegisterConstant(c); err != nil {
+		return err
+	}
 	c.fullyQualifiedName = scope.fullyQualifiedName + "." + c.simpleName
 	c.constantKey = computeTypeKey(c.fullyQualifiedName)
 	scope.file.Descriptor.constantsByKey[c.constantKey] = c
+	return nil
 }
 
 /////////////////////////////////////////////////////////////

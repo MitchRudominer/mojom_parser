@@ -156,22 +156,33 @@ func (p *Parser) parseMojomFile() bool {
 			return false
 		}
 		nextToken := p.peekNextToken("")
+		dupeMessage := ""
 		switch nextToken.Kind {
 		case lexer.INTERFACE:
-			p.mojomFile.AddInterface(p.parseInterfaceDecl(attributes))
+			mojomInterface, nameToken := p.parseInterfaceDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddInterface(mojomInterface), nameToken)
 		case lexer.STRUCT:
-			p.mojomFile.AddStruct(p.parseStructDecl(attributes))
+			mojomStruct, nameToken := p.parseStructDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddStruct(mojomStruct), nameToken)
 		case lexer.UNION:
-			p.mojomFile.AddUnion(p.parseUnionDecl(attributes))
+			mojomUnion, nameToken := p.parseUnionDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddUnion(mojomUnion), nameToken)
 		case lexer.ENUM:
-			p.mojomFile.AddEnum(p.parseEnumDecl(attributes))
+			mojomEnum, nameToken := p.parseEnumDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddEnum(mojomEnum), nameToken)
 		case lexer.CONST:
-			p.mojomFile.AddConstant(p.parseConstDecl(attributes))
+			constant, nameToken := p.parseConstDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddConstant(constant), nameToken)
 		default:
 			message := fmt.Sprintf("Unexpected token at %s: %s. "+
 				"Expecting interface, struct, union, enum or const.",
 				nextToken.LocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return false
+		}
+
+		if len(dupeMessage) > 0 {
+			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
 	}
@@ -311,7 +322,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 }
 
 // INTRFC_DECL  -> interface name lbrace INTRFC_BODY rbrace semi
-func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterface *mojom.MojomInterface) {
+func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterface *mojom.MojomInterface, nameToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
@@ -326,6 +337,7 @@ func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterfac
 	if !p.OK() {
 		return
 	}
+	nameToken = p.lastConsumed
 
 	mojomInterface = mojom.NewMojomInterface(simpleName, attributes)
 
@@ -366,6 +378,7 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 			return false
 		}
 		nextToken := p.peekNextToken("I was parsing an interface body.")
+		dupeMessage := ""
 		switch nextToken.Kind {
 		case lexer.NAME:
 			if method := p.parseMethodDecl(attributes); p.OK() {
@@ -374,13 +387,11 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 			}
 			return false
 		case lexer.ENUM:
-			if enum := p.parseEnumDecl(attributes); p.OK() {
-				mojomInterface.AddEnum(enum)
-				break
-			}
-			return false
+			mojomEnum, nameToken := p.parseEnumDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddEnum(mojomEnum), nameToken)
 		case lexer.CONST:
-			mojomInterface.AddConstant(p.parseConstDecl(attributes))
+			constant, nameToken := p.parseConstDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddConstant(constant), nameToken)
 		case lexer.RBRACE:
 			rbraceFound = true
 			if attributes != nil {
@@ -393,6 +404,10 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 				"Expecting union, enum, const or an identifier",
 				nextToken.LocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return false
+		}
+		if len(dupeMessage) > 0 {
+			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
 	}
@@ -504,7 +519,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 }
 
 // STRUCT_DECL   -> struct name lbrace STRUCT_BODY rbrace semi
-func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *mojom.MojomStruct) {
+func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *mojom.MojomStruct, nameToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
@@ -519,6 +534,7 @@ func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *moj
 	if !p.OK() {
 		return
 	}
+	nameToken = p.lastConsumed
 	mojomStruct = mojom.NewMojomStruct(simpleName, attributes)
 
 	if !p.match(lexer.LBRACE) {
@@ -558,13 +574,16 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 			return false
 		}
 		nextToken := p.peekNextToken("I was parsing a struct body.")
+		dupeMessage := ""
 		switch nextToken.Kind {
 		case lexer.NAME:
 			mojomStruct.AddField(p.parseStructField(attributes))
 		case lexer.ENUM:
-			mojomStruct.AddEnum(p.parseEnumDecl(attributes))
+			mojomEnum, nameToken := p.parseEnumDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddEnum(mojomEnum), nameToken)
 		case lexer.CONST:
-			mojomStruct.AddConstant(p.parseConstDecl(attributes))
+			constant, nameToken := p.parseConstDecl(attributes)
+			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddConstant(constant), nameToken)
 		case lexer.RBRACE:
 			rbraceFound = true
 			if attributes != nil {
@@ -577,6 +596,10 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 				"Expecting field, enum or constant declaration.",
 				nextToken.LocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return false
+		}
+		if len(dupeMessage) > 0 {
+			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
 	}
@@ -606,7 +629,7 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 	return
 }
 
-func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.MojomUnion) {
+func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.MojomUnion, nameToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
@@ -614,7 +637,7 @@ func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.Mojo
 	return
 }
 
-func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomEnum) {
+func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomEnum, nameToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
@@ -622,7 +645,7 @@ func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomE
 	return
 }
 
-func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.UserDefinedConstant) {
+func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.UserDefinedConstant, nameToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
@@ -1002,4 +1025,25 @@ func (p *Parser) popNode() {
 	if p.currentNode != nil {
 		p.currentNode = p.currentNode.parent
 	}
+}
+
+/////////// Utility functions
+
+func (p *Parser) duplicateNameMessage(dupeError *mojom.DuplicateNameError,
+	nameToken lexer.Token) string {
+	if dupeError == nil {
+		return ""
+	}
+	if dupeError.ExistingType() != nil {
+		return fmt.Sprintf("%s:%s. Duplicate definition for name '%s'. "+
+			"Existing definition: %s %s in %s.", p.mojomFile.FileName,
+			nameToken.LocationString(), nameToken.Text,
+			dupeError.ExistingType().Kind(),
+			dupeError.ExistingType().FullyQualifiedName(),
+			dupeError.ExistingType().Scope())
+
+	} else {
+		return "frog"
+	}
+
 }

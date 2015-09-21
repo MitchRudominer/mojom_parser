@@ -73,7 +73,7 @@ func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
 				contents, d.descriptor)
 			parser.Parse()
 			if !parser.OK() {
-				d.err = fmt.Errorf("\nError while parsing %s: %s\n",
+				d.err = fmt.Errorf("\nError while parsing %s: \n%s\n",
 					nextFileRef, parser.Error().Error())
 				return ParseResult{Err: d.err, Descriptor: d.descriptor}
 			}
@@ -95,7 +95,7 @@ func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
 }
 
 func writeSerializedMojomDescriptor(data []byte) {
-	fmt.Println(string(data))
+	fmt.Printf("\n%s\n", string(data))
 }
 
 func main() {

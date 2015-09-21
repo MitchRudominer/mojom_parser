@@ -116,6 +116,8 @@ const (
 	// Unexpected end-of-file
 	E_EOF
 
+	E_DUPLICATE_DECLARATION
+
 	E_UNEXPECTED_TOKEN
 
 	// After what appears to be a complete mojom file there were extra tokens.

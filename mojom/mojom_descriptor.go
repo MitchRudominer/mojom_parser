@@ -74,29 +74,29 @@ func (f *MojomFile) AddImport(fileName string) {
 	f.Imports = append(f.Imports, fileName)
 }
 
-func (f *MojomFile) AddInterface(mojomInterface *MojomInterface) {
-	mojomInterface.RegisterInScope(f.FileScope)
+func (f *MojomFile) AddInterface(mojomInterface *MojomInterface) *DuplicateNameError {
 	f.Interfaces = append(f.Interfaces, mojomInterface)
+	return mojomInterface.RegisterInScope(f.FileScope)
 }
 
-func (f *MojomFile) AddStruct(mojomStruct *MojomStruct) {
-	mojomStruct.RegisterInScope(f.FileScope)
+func (f *MojomFile) AddStruct(mojomStruct *MojomStruct) *DuplicateNameError {
 	f.Structs = append(f.Structs, mojomStruct)
+	return mojomStruct.RegisterInScope(f.FileScope)
 }
 
-func (f *MojomFile) AddEnum(mojomEnum *MojomEnum) {
-	mojomEnum.RegisterInScope(f.FileScope)
+func (f *MojomFile) AddEnum(mojomEnum *MojomEnum) *DuplicateNameError {
 	f.Enums = append(f.Enums, mojomEnum)
+	return mojomEnum.RegisterInScope(f.FileScope)
 }
 
-func (f *MojomFile) AddUnion(mojomUnion *MojomUnion) {
-	mojomUnion.RegisterInScope(f.FileScope)
+func (f *MojomFile) AddUnion(mojomUnion *MojomUnion) *DuplicateNameError {
 	f.Unions = append(f.Unions, mojomUnion)
+	return mojomUnion.RegisterInScope(f.FileScope)
 }
 
-func (f *MojomFile) AddConstant(declaredConst *UserDefinedConstant) {
-	declaredConst.RegisterInScope(f.FileScope)
+func (f *MojomFile) AddConstant(declaredConst *UserDefinedConstant) *DuplicateNameError {
 	f.Constants = append(f.Constants, declaredConst)
+	return declaredConst.RegisterInScope(f.FileScope)
 }
 
 //////////////////////////////////////////////////////////////////
@@ -145,17 +145,16 @@ func (d *MojomDescriptor) getGlobalScobe() *Scope {
 }
 
 func (d *MojomDescriptor) Serialize() []byte {
-	// TODO
-	return nil
+	return []byte(fmt.Sprintf("%s", d))
 }
 
 func (d *MojomDescriptor) ContainsFile(fileName string) bool {
 	return false
 }
 
-func (d *MojomDescriptor) SprintMojomFileNames() (s string) {
+func (d *MojomDescriptor) SprintMojomFiles() (s string) {
 	for _, f := range d.mojomFiles {
-		s += fmt.Sprintf("%s ", f.FileName)
+		s += fmt.Sprintf("\n%s\n", f)
 	}
 	return
 }
@@ -167,8 +166,21 @@ func (d *MojomDescriptor) SprintUnresolvedTypeReference() (s string) {
 	return
 }
 
+func SprintTypeMap(m map[string]UserDefinedType) (s string) {
+	for key, value := range m {
+		s += fmt.Sprintf("%s : %s %s\n", key, value.SimpleName(), value.Kind())
+	}
+	return
+}
+
 func (d *MojomDescriptor) String() string {
-	return "TODO"
+	s := "typesByKey:\n"
+	s += "----------\n"
+	s += SprintTypeMap(d.typesByKey)
+	s += "\nFiles:"
+	s += "\n------\n"
+	s += d.SprintMojomFiles()
+	return s
 }
 
 func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
@@ -190,11 +202,4 @@ func (d *MojomDescriptor) RegisterUnresolvedTypeReference(typeReference *TypeRef
 func computeTypeKey(fullyQualifiedName string) (typeKey string) {
 	// TODO(rudominer) This should be the SHA1 hash of fqn instead.
 	return fullyQualifiedName
-}
-
-func SprintMapValueNames(m map[string]UserDefinedType) (s string) {
-	for key, value := range m {
-		s += fmt.Sprintf("%s : %s\n", key, value.FullyQualifiedName())
-	}
-	return
 }

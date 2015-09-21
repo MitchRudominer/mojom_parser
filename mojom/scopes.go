@@ -112,31 +112,30 @@ func (s *Scope) String() string {
 	if s.fullyQualifiedName == "" {
 		return "Global"
 	}
-	return fmt.Sprintf("%s %s", s.kind, s.shortName)
+	fileNameString := ""
+	if s.file != nil {
+		fileNameString = fmt.Sprintf(" in %s", s.file.FileName)
+	}
+	return fmt.Sprintf("%s %s%s", s.kind, s.shortName, fileNameString)
 }
 
-/*
-
-func (s *Scope) Kind() ScopeKind {
-	return s.kind
+// This structure is used for a duplication name defintion for a type or
+// a value. Exactly one of the two fields will be non-nil.
+type DuplicateNameError struct {
+	existingType  UserDefinedType
+	existingValue *UserDefinedConstant
 }
 
-func (s *bstractScope) ShortName() string {
-	return s.shortName
+func (d *DuplicateNameError) ExistingType() UserDefinedType {
+	return d.existingType
 }
 
-func (s *bstractScope) FullyQualifiedName() string {
-	return s.fullyQualifiedName
-}
-
-func (s *Scope) File() *MojomFile {
-	return s.file
-}
-*/
-
-func (scope *Scope) registerTypeWithNamePrefix(userDefinedType UserDefinedType, namePrefix string) {
-	fmt.Printf("Registering type with name %s in scope %s.\n", namePrefix+userDefinedType.SimpleName(), scope)
-	scope.typesByName[namePrefix+userDefinedType.SimpleName()] = userDefinedType
+func (scope *Scope) registerTypeWithNamePrefix(userDefinedType UserDefinedType, namePrefix string) *DuplicateNameError {
+	registrationName := namePrefix + userDefinedType.SimpleName()
+	if existingType := scope.typesByName[registrationName]; existingType != nil {
+		return &DuplicateNameError{existingType: existingType}
+	}
+	scope.typesByName[registrationName] = userDefinedType
 	if scope.parentScope != nil {
 		if scope.kind == SCOPE_FILE_MODULE {
 			if scope.parentScope.kind != SCOPE_ABSTRACT_MODULE {
@@ -146,12 +145,20 @@ func (scope *Scope) registerTypeWithNamePrefix(userDefinedType UserDefinedType, 
 		} else {
 			namePrefix = scope.shortName + "." + namePrefix
 		}
-		scope.parentScope.registerTypeWithNamePrefix(userDefinedType, namePrefix)
+		if err := scope.parentScope.registerTypeWithNamePrefix(userDefinedType,
+			namePrefix); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (scope *Scope) registerConstantWithNamePrefix(userDefinedConstant *UserDefinedConstant, namePrefix string) {
-	scope.constantsByName[namePrefix+userDefinedConstant.simpleName] = userDefinedConstant
+func (scope *Scope) registerConstantWithNamePrefix(userDefinedConstant *UserDefinedConstant, namePrefix string) *DuplicateNameError {
+	registrationName := namePrefix + userDefinedConstant.simpleName
+	if existingConst := scope.constantsByName[registrationName]; existingConst != nil {
+		return &DuplicateNameError{existingValue: existingConst}
+	}
+	scope.constantsByName[registrationName] = userDefinedConstant
 	if scope.parentScope != nil {
 		if scope.kind == SCOPE_FILE_MODULE {
 			if scope.parentScope.kind != SCOPE_ABSTRACT_MODULE {
@@ -161,16 +168,20 @@ func (scope *Scope) registerConstantWithNamePrefix(userDefinedConstant *UserDefi
 		} else {
 			namePrefix = scope.shortName + "." + namePrefix
 		}
-		scope.parentScope.registerConstantWithNamePrefix(userDefinedConstant, namePrefix)
+		if err := scope.parentScope.registerConstantWithNamePrefix(
+			userDefinedConstant, namePrefix); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (scope *Scope) RegisterType(userDefinedType UserDefinedType) {
-	scope.registerTypeWithNamePrefix(userDefinedType, "")
+func (scope *Scope) RegisterType(userDefinedType UserDefinedType) *DuplicateNameError {
+	return scope.registerTypeWithNamePrefix(userDefinedType, "")
 }
 
-func (scope *Scope) RegisterConstant(userDefinedConstant *UserDefinedConstant) {
-	scope.registerConstantWithNamePrefix(userDefinedConstant, "")
+func (scope *Scope) RegisterConstant(userDefinedConstant *UserDefinedConstant) *DuplicateNameError {
+	return scope.registerConstantWithNamePrefix(userDefinedConstant, "")
 }
 
 func (scope *Scope) LookupType(name string) UserDefinedType {
