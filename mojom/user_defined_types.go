@@ -74,7 +74,7 @@ func (b *UserDefinedTypeBase) RegisterInScope(scope *Scope) *DuplicateNameError 
 	}
 	b.scope = scope
 
-	b.fullyQualifiedName = scope.fullyQualifiedName + "." + b.simpleName
+	b.fullyQualifiedName = buildDottedName(scope.fullyQualifiedName, b.simpleName)
 	b.typeKey = computeTypeKey(b.fullyQualifiedName)
 	scope.descriptor.typesByKey[b.typeKey] = b.thisType
 	return nil
@@ -319,7 +319,7 @@ func (MojomUnion) Kind() UserDefinedTypeKind {
 }
 
 type UnionField struct {
-	ValueDeclarationData
+	VariableDeclarationData
 
 	fieldType Type
 	tag       uint32
@@ -356,7 +356,7 @@ func (e *MojomEnum) InitAsScope(parentScope *Scope) *Scope {
 func (e *MojomEnum) AddEnumValue(name string, valueSpec ValueSpec,
 	attributes *Attributes) *DuplicateNameError {
 	enumValue := new(EnumValue)
-	enumValue.Init(name, enumValue, valueSpec, attributes)
+	enumValue.Init(name, ENUM_VALUE, enumValue, valueSpec, attributes)
 	e.values = append(e.values, enumValue)
 	return enumValue.RegisterInScope(e.containedDeclarations)
 }
@@ -394,37 +394,66 @@ func (ev *EnumValue) String() string {
 //Declared Values
 /////////////////////////////////////////////////////////////
 
+// User-Defined Value Kinds
+type UserDefinedValueKind int
+
+const (
+	ENUM_VALUE UserDefinedValueKind = iota
+	DECLARED_CONSTANT
+)
+
+func (k UserDefinedValueKind) String() string {
+	switch k {
+	case ENUM_VALUE:
+		return "enum value"
+	case DECLARED_CONSTANT:
+		return "declared constant"
+	default:
+		panic(fmt.Sprintf("Unknown UserDefinedValueKind: %d", k))
+	}
+}
+
 // A UserDefinedValue is either a UserDefinedConstant or an EnumValue
 type UserDefinedValue interface {
 	SimpleName() string
+	FullyQualifiedName() string
+	Kind() UserDefinedValueKind
+	Scope() *Scope
 	AsDeclaredConstant() *UserDefinedConstant
 	AsEnumValue() *EnumValue
 	RegisterInScope(scope *Scope) *DuplicateNameError
 }
 
 type UserDefinedValueBase struct {
-	ValueDeclarationData
+	attributes         *Attributes
 	thisValue          UserDefinedValue
+	simpleName         string
 	fullyQualifiedName string
+	kind               UserDefinedValueKind
 	valueKey           string
 	valueSpec          ValueSpec
+	scope              *Scope
 }
 
 // This method is invoked from the constructors for the containing types:
 // NewMojomInterface, NewMojomStruct, NewMojomEnum, NewMojomUnion
-func (b *UserDefinedValueBase) Init(simpleName string, thisValue UserDefinedValue,
+func (b *UserDefinedValueBase) Init(simpleName string,
+	kind UserDefinedValueKind, thisValue UserDefinedValue,
 	valueSpec ValueSpec, attributes *Attributes) {
+	b.attributes = attributes
 	b.thisValue = thisValue
 	b.simpleName = simpleName
+	b.kind = kind
 	b.valueSpec = valueSpec
-	b.attributes = attributes
 }
 
 func (v *UserDefinedValueBase) RegisterInScope(scope *Scope) *DuplicateNameError {
 	if err := scope.RegisterValue(v.thisValue); err != nil {
 		return err
 	}
-	v.fullyQualifiedName = scope.fullyQualifiedName + "." + v.simpleName
+	v.scope = scope
+
+	v.fullyQualifiedName = buildDottedName(scope.fullyQualifiedName, v.simpleName)
 	v.valueKey = computeTypeKey(v.fullyQualifiedName)
 	scope.file.Descriptor.valuesByKey[v.valueKey] = v.thisValue
 	return nil
@@ -443,6 +472,22 @@ func (b UserDefinedValueBase) String() string {
 		}
 	}
 	return fmt.Sprintf("%s%s%s", attributeString, b.simpleName, concreteValueString)
+}
+
+func (b *UserDefinedValueBase) Kind() UserDefinedValueKind {
+	return b.kind
+}
+
+func (b *UserDefinedValueBase) SimpleName() string {
+	return b.simpleName
+}
+
+func (b *UserDefinedValueBase) FullyQualifiedName() string {
+	return b.fullyQualifiedName
+}
+
+func (b UserDefinedValueBase) Scope() *Scope {
+	return b.scope
 }
 
 /////////////////////////////////////////////////////////////
@@ -469,23 +514,9 @@ func (constant *UserDefinedConstant) AsEnumValue() *EnumValue {
 // Declaration Data
 /////////////////////////////////////////////////////////////
 
-type ValueDeclarationData struct {
-	simpleName string
-	attributes *Attributes
-}
-
-func (v *ValueDeclarationData) InitValueDeclarationData(simpleName string,
-	attributes *Attributes) {
-	v.simpleName = simpleName
-	v.attributes = attributes
-}
-
-func (v *ValueDeclarationData) SimpleName() string {
-	return v.simpleName
-}
-
 type VariableDeclarationData struct {
-	ValueDeclarationData
+	simpleName      string
+	attributes      *Attributes
 	declaredOrdinal int
 }
 
@@ -494,6 +525,10 @@ func (v *VariableDeclarationData) InitVariableDeclarationData(simpleName string,
 	v.simpleName = simpleName
 	v.attributes = attributes
 	v.declaredOrdinal = ordinal
+}
+
+func (v *VariableDeclarationData) SimpleName() string {
+	return v.simpleName
 }
 
 type Attributes struct {

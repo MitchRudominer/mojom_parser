@@ -853,7 +853,6 @@ func (p *Parser) parseLiteral() mojom.ConcreteValue {
 	nextToken := p.peekNextToken("I was parsing a literal.")
 	switch nextToken.Kind {
 	case lexer.STRING_LITERAL:
-		p.consumeNextToken()
 		return mojom.MakeStringConcreteValue(p.parseStringLiteral())
 	case lexer.TRUE:
 		p.consumeNextToken()
@@ -862,7 +861,6 @@ func (p *Parser) parseLiteral() mojom.ConcreteValue {
 		p.consumeNextToken()
 		return mojom.MakeBoolConcreteValue(true)
 	case lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
-		p.consumeNextToken()
 		value, _ := p.readIntegerLiteral()
 		return mojom.MakeInt64ConcreteValue(value)
 	default:
@@ -882,9 +880,13 @@ func (p *Parser) parseStringLiteral() (literal string) {
 	defer p.popNode()
 
 	text := p.readText(lexer.STRING_LITERAL)
+	if !p.OK() {
+		return
+	}
 	length := len(text)
 	if (length < 2) || (text[0] != '"') || (text[length-1] != '"') {
-		panic("Lexer returned a string literal token whose text was not delimited by quotation marks.")
+		panic(fmt.Sprintf("Lexer returned a string literal token whose "+
+			"text was not delimited by quotation marks: '%s'.", text))
 	}
 	return text[1 : length-1]
 }
@@ -1287,13 +1289,22 @@ func (p *Parser) duplicateNameMessage(dupeError *mojom.DuplicateNameError,
 	}
 	if dupeError.ExistingType() != nil {
 		return fmt.Sprintf("%s:%s. Duplicate definition for name '%s'. "+
-			"Existing definition: %s %s in %s.", p.mojomFile.FileName,
+			"The fully-qualified name of this type would be the same as "+
+			"an existing type definition: "+
+			"%s %s in %s.", p.mojomFile.FileName,
 			nameToken.ShortLocationString(), nameToken.Text,
 			dupeError.ExistingType().Kind(),
 			dupeError.ExistingType().FullyQualifiedName(),
 			dupeError.ExistingType().Scope())
 
 	} else {
-		return "frog"
+		return fmt.Sprintf("%s:%s. Duplicate definition for name '%s'. "+
+			"The fully-qualified name of this value would be the same as "+
+			"an existing value definition: "+
+			"%s %s in %s.", p.mojomFile.FileName,
+			nameToken.ShortLocationString(), nameToken.Text,
+			dupeError.ExistingValue().Kind(),
+			dupeError.ExistingValue().FullyQualifiedName(),
+			dupeError.ExistingValue().Scope())
 	}
 }

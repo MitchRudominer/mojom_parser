@@ -19,6 +19,8 @@ func (k ScopeKind) String() string {
 	switch k {
 	case SCOPE_ABSTRACT_MODULE:
 		return "abstract module"
+	case SCOPE_ENUM:
+		return "enum"
 	case SCOPE_FILE_MODULE:
 		return "file module"
 	case SCOPE_INTERFACE:
@@ -53,6 +55,13 @@ func (scope *Scope) init(kind ScopeKind, shortName string,
 	scope.descriptor = descriptor
 }
 
+func buildDottedName(prefix, suffix string) string {
+	if len(prefix) == 0 {
+		return suffix
+	}
+	return fmt.Sprintf("%s.%s", prefix, suffix)
+}
+
 func NewLexicalScope(kind ScopeKind, parentScope *Scope,
 	shortName string, file *MojomFile) *Scope {
 	scope := new(Scope)
@@ -73,12 +82,12 @@ func NewLexicalScope(kind ScopeKind, parentScope *Scope,
 		if parentScope == nil || parentScope.kind != SCOPE_FILE_MODULE {
 			panic("An interface or struct lexical scope must have a parent lexical scope of type FILE_MODULE.")
 		}
-		fullyQualifiedName = parentScope.fullyQualifiedName + "." + shortName
+		fullyQualifiedName = buildDottedName(parentScope.fullyQualifiedName, shortName)
 	case SCOPE_ENUM:
 		if parentScope == nil || parentScope.kind == SCOPE_ABSTRACT_MODULE {
 			panic("An enum lexical scope must have a parent lexical scope not an ABSTRACT_MODULE scope.")
 		}
-		fullyQualifiedName = parentScope.fullyQualifiedName + "." + shortName
+		fullyQualifiedName = buildDottedName(parentScope.fullyQualifiedName, shortName)
 	case SCOPE_ABSTRACT_MODULE:
 		panic("The type of a lexical scope cannot be ABSTRACT_MODULE.")
 	default:
@@ -136,6 +145,10 @@ func (d *DuplicateNameError) ExistingType() UserDefinedType {
 	return d.existingType
 }
 
+func (d *DuplicateNameError) ExistingValue() UserDefinedValue {
+	return d.existingValue
+}
+
 func (scope *Scope) registerTypeWithNamePrefix(userDefinedType UserDefinedType, namePrefix string) *DuplicateNameError {
 	registrationName := namePrefix + userDefinedType.SimpleName()
 	if existingType := scope.typesByName[registrationName]; existingType != nil {
@@ -149,7 +162,7 @@ func (scope *Scope) registerTypeWithNamePrefix(userDefinedType UserDefinedType, 
 			}
 
 		} else {
-			namePrefix = scope.shortName + "." + namePrefix
+			namePrefix = buildDottedName(scope.shortName, namePrefix)
 		}
 		if err := scope.parentScope.registerTypeWithNamePrefix(userDefinedType,
 			namePrefix); err != nil {
@@ -172,7 +185,7 @@ func (scope *Scope) registerValueWithNamePrefix(value UserDefinedValue, namePref
 			}
 
 		} else {
-			namePrefix = scope.shortName + "." + namePrefix
+			namePrefix = buildDottedName(scope.shortName, namePrefix)
 		}
 		if err := scope.parentScope.registerValueWithNamePrefix(
 			value, namePrefix); err != nil {
