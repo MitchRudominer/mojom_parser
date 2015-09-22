@@ -65,7 +65,7 @@ func (p *Parser) Parse() {
 	if p.OK() && !p.checkEOF() {
 		token := p.peekNextToken("")
 		message := fmt.Sprintf("Extraneous token at %s: %v.",
-			token.LocationString(), token)
+			token.LongLocationString(), token)
 		p.err = parserError{E_EXTRANEOUS_TOKEN, message}
 	}
 }

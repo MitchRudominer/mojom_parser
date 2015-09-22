@@ -61,6 +61,7 @@ func (f *MojomFile) String() string {
 	s += fmt.Sprintf("imports: %s\n", f.Imports)
 	s += fmt.Sprintf("interfaces: %s\n", f.Interfaces)
 	s += fmt.Sprintf("structs: %s\n", f.Structs)
+	s += fmt.Sprintf("enums: %s\n", f.Enums)
 	return s
 }
 
@@ -104,30 +105,27 @@ func (f *MojomFile) AddConstant(declaredConst *UserDefinedConstant) *DuplicateNa
 /// //////////////////////////////////////////////////////////////
 
 type MojomDescriptor struct {
-	// Note that UserDefinedType is an interface whereas UserDefinedConstant
-	// is a struct. That explains why we handle the former by value and
-	// the latter by pointer.
-	typesByKey     map[string]UserDefinedType
-	constantsByKey map[string]*UserDefinedConstant
-	mojomFiles     []*MojomFile
+	typesByKey  map[string]UserDefinedType
+	valuesByKey map[string]UserDefinedValue
+	mojomFiles  []*MojomFile
 
-	scopesByName                 map[string]*Scope
-	unresolvedTypeReferences     []*TypeReference
-	unresolvedConstantReferences []*ConstantOccurrence
+	scopesByName              map[string]*Scope
+	unresolvedTypeReferences  []*TypeReference
+	unresolvedValueReferences []*ValueReference
 }
 
 func NewMojomDescriptor() *MojomDescriptor {
 	descriptor := new(MojomDescriptor)
 
 	descriptor.typesByKey = make(map[string]UserDefinedType)
-	descriptor.constantsByKey = make(map[string]*UserDefinedConstant)
+	descriptor.valuesByKey = make(map[string]UserDefinedValue)
 	descriptor.mojomFiles = make([]*MojomFile, 0)
 	descriptor.scopesByName = make(map[string]*Scope)
 	// The global namespace scope.
 	descriptor.scopesByName[""] = NewAbstractModuleScope("", descriptor)
 
 	descriptor.unresolvedTypeReferences = make([]*TypeReference, 0)
-	descriptor.unresolvedConstantReferences = make([]*ConstantOccurrence, 0)
+	descriptor.unresolvedValueReferences = make([]*ValueReference, 0)
 	return descriptor
 }
 
@@ -173,10 +171,20 @@ func SprintTypeMap(m map[string]UserDefinedType) (s string) {
 	return
 }
 
+func SprintValueMap(m map[string]UserDefinedValue) (s string) {
+	for key, value := range m {
+		s += fmt.Sprintf("%s : %s\n", key, value.SimpleName())
+	}
+	return
+}
+
 func (d *MojomDescriptor) String() string {
 	s := "typesByKey:\n"
 	s += "----------\n"
 	s += SprintTypeMap(d.typesByKey)
+	s += "\nvaluesByKey:\n"
+	s += "----------\n"
+	s += SprintValueMap(d.valuesByKey)
 	s += "\nFiles:"
 	s += "\n------\n"
 	s += d.SprintMojomFiles()
@@ -192,6 +200,10 @@ func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
 
 func (d *MojomDescriptor) RegisterUnresolvedTypeReference(typeReference *TypeReference) {
 	d.unresolvedTypeReferences = append(d.unresolvedTypeReferences, typeReference)
+}
+
+func (d *MojomDescriptor) RegisterUnresolvedValueReference(valueReference *ValueReference) {
+	d.unresolvedValueReferences = append(d.unresolvedValueReferences, valueReference)
 }
 
 ///////////////////////////////////////////////////////////////////////

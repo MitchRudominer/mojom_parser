@@ -21,22 +21,22 @@ func (d *MojomDescriptor) Resolve() error {
 		}
 	}
 
-	unresolvedConstantReferences := make([]*ConstantOccurrence,
-		len(d.unresolvedConstantReferences))
-	numUnresolvedConstantReferences := 0
-	for _, ref := range d.unresolvedConstantReferences {
+	unresolvedValueReferences := make([]*ValueReference,
+		len(d.unresolvedValueReferences))
+	numUnresolvedValueReferences := 0
+	for _, ref := range d.unresolvedValueReferences {
 		if ref != nil {
-			if !d.resolveConstantRef(ref) {
-				unresolvedConstantReferences[numUnresolvedConstantReferences] = ref
-				numUnresolvedConstantReferences++
+			if !d.resolveValueRef(ref) {
+				unresolvedValueReferences[numUnresolvedValueReferences] = ref
+				numUnresolvedValueReferences++
 			}
 		}
 	}
 
 	d.unresolvedTypeReferences = unresolvedTypeReferences[0:numUnresolvedTypeReferences]
-	d.unresolvedConstantReferences = unresolvedConstantReferences[0:numUnresolvedConstantReferences]
+	d.unresolvedValueReferences = unresolvedValueReferences[0:numUnresolvedValueReferences]
 
-	if numUnresolvedTypeReferences+numUnresolvedConstantReferences == 0 {
+	if numUnresolvedTypeReferences+numUnresolvedValueReferences == 0 {
 		return nil
 	}
 
@@ -48,10 +48,10 @@ func (d *MojomDescriptor) Resolve() error {
 			errorMessage += fmt.Sprintf("%s\n", ref.LongString())
 		}
 	}
-	if numUnresolvedConstantReferences > 0 {
+	if numUnresolvedValueReferences > 0 {
 		errorMessage += "\nNo constant defintions found for the following identifiers:\n"
 		errorMessage += "-----------------------------------------------------------\n"
-		for _, ref := range d.unresolvedConstantReferences {
+		for _, ref := range d.unresolvedValueReferences {
 			errorMessage += fmt.Sprintf("%s\n", ref.LongString())
 		}
 	}
@@ -63,7 +63,21 @@ func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
 	return ref.resolvedType != nil
 }
 
-func (d *MojomDescriptor) resolveConstantRef(ref *ConstantOccurrence) (resolved bool) {
-	ref.resolvedConstant = ref.Scope.LookupConstant(ref.identifier)
-	return ref.resolvedConstant != nil
+func (d *MojomDescriptor) resolveValueRef(ref *ValueReference) (resolved bool) {
+	userDefinedValue := ref.scope.LookupValue(ref.identifier)
+	if userDefinedValue == nil {
+		return false
+	}
+	if declaredConstant := userDefinedValue.AsDeclaredConstant(); declaredConstant != nil {
+		ref.resolvedConstant = declaredConstant
+		ref.resolvedValue = declaredConstant.valueSpec.ResolvedValue()
+		if ref.resolvedValue != nil {
+			return true
+		}
+		// TODO(rudominer) We need to figure out how to handle chains of value references.
+		return false
+	}
+	ref.resolvedValue = userDefinedValue.AsEnumValue().valueSpec.ResolvedValue()
+	// TODO(rudominer) We also need to set the type of the resolved value.
+	return ref.resolvedValue != nil
 }

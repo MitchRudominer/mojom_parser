@@ -3,6 +3,7 @@ package mojom
 import (
 	"fmt"
 	"github.com/rudominer/mojom_parser/lexer"
+	"strings"
 )
 
 // The different kinds of Mojom types. We divide the types into five categories:
@@ -357,10 +358,6 @@ type TypeReference struct {
 
 	token lexer.Token
 
-	// If this type reference was used as a constant value then resolvedTye
-	// must eventually be an enum type
-	usedAsConstantValue bool
-
 	resolvedType UserDefinedType
 }
 
@@ -411,48 +408,137 @@ func (t TypeReference) String() string {
 
 func (t TypeReference) LongString() string {
 	return fmt.Sprintf("%s %s:%s. (In %s.)", t.identifier,
-		t.scope.file.FileName, t.token.LocationString(), t.scope)
+		t.scope.file.FileName, t.token.ShortLocationString(), t.scope)
 }
 
 /////////////////////////////////////////////////////////////
-// Constant Occurrence
+// ValueSpec
 /////////////////////////////////////////////////////////////
 
-// A constant occurrence represents an occurrence in a .mojom file of
-// a constant. This may be either a constant literal or an identifier
-// that refers to user-defined constant, or an identifier that refers
-// to a user-defined enum value
-type ConstantOccurrence struct {
-	isLiteral bool
+// A ValueSpec represents an occurrence in the .mojom file of a
+// specification of a value. These occur as the default values of fields,
+// as the values of declared constants, and as the value of an enum value.
+// A value spec is either a literal number or string or else a reference
+// that must eventually resolve to an enum value or a UserDefinedConstant
+type ValueSpec interface {
+	ResolvedValue() *ConcreteValue
+}
 
-	// The value of the constant or nil if the constant is not yet resolved.
-	value *ConstantValue
+// Both LiteralValue and ValueReference include ValueSpecBase.
+type ValueSpecBase struct {
+	// A value specification always occurs in the context of some
+	// assignment. This may be the assignment of a default value
+	// to a field, the assignment of a value to a declared constant,
+	// or the assignment of a value to an enum value. In all cases we
+	// know at the site of the assignment what the declared type of
+	// the assignee is and we record that here. After the ValueSpec
+	// has been resolved it will also have a |valueType| and that
+	// must be compatible with the |assigneeType|.
+	assigneeType Type
 
-	// The scope where this constant reference occurred. This is
-	// used to resolve the identifier.
-	Scope *Scope
+	// The actual type of the value that the ValueSpec resolves to.
+	// If the ValueSpec is a literal then we can determine this type
+	// immediately when the ValueSpec is parsed. Otherwise we have to
+	// wait until resolution to know the value type.
+	valueType Type
 
+	// The concrete value that the ValueSpec resolves to. If the ValueSpec
+	// is a literal value then we can determine this immediately when the
+	// value spec is parsed. Otherwise we have to wait until resolution
+	// to know the value.
+	resolvedValue *ConcreteValue
+}
+
+func (v *ValueSpecBase) LongString() string {
+	return "TODO"
+}
+
+func (v *ValueSpecBase) ResolvedValue() *ConcreteValue {
+	return v.resolvedValue
+}
+
+// A literal number or string value.
+type LiteralValue struct {
+	ValueSpecBase
+}
+
+func NewIntegerLiteralValue(assigneeType Type, intVal int64) *LiteralValue {
+	int64Type := BuiltInTypeMap["int64"]
+	literalValue := new(LiteralValue)
+	literalValue.assigneeType = assigneeType
+	literalValue.valueType = int64Type
+	literalValue.resolvedValue = &ConcreteValue{valueType: int64Type, value: intVal}
+	return literalValue
+}
+
+// A reference to a value. That is, a reference to an enum value or
+// a reference to a user-defined constant.
+type ValueReference struct {
+	ValueSpecBase
+
+	// The scope in which the reference occurs. This is necessary in order
+	// to resolve the reference.
+	scope *Scope
 	token lexer.Token
 
-	identifier       string
+	identifier string
+
+	// The name of the constant or enum value. This is only the final
+	// segment of the dotted identifier. The previous segments are a
+	// reference to the container for the constant or the enum type and
+	// are captured by valueType
+	valueName string
+
+	// This is the previous segments of the dotted identifier, not including
+	// the final segment. In the case this reference turns out to refer to
+	// an enum value, this string will refer to the enum type. In case this
+	// reference turns out to refer to a constant declaration, this string will
+	// refer to the scope of that
+	valueScopeName string
+
+	// In case the identifier resolves to the name of a constant, this is
+	// a pointer to the declaration of that constant.
 	resolvedConstant *UserDefinedConstant
 }
 
-func (c ConstantOccurrence) String() string {
-	// TODO(rudominer)
-	return ""
+func NewValueReference(assigneeType Type, identifier string, scope *Scope,
+	token lexer.Token) *ValueReference {
+	valueReference := new(ValueReference)
+	valueReference.valueType = assigneeType
+	valueReference.scope = scope
+	valueReference.token = token
+	valueReference.identifier = identifier
+
+	splitIdentifier := strings.Split(identifier, ".")
+	numSegments := len(splitIdentifier)
+
+	valueReference.valueName = splitIdentifier[numSegments-1]
+
+	valueReference.valueScopeName = ""
+	if numSegments > 1 {
+		valueReference.valueScopeName = strings.Join(splitIdentifier[0:numSegments-1], ".")
+	}
+
+	return valueReference
 }
 
-func (t ConstantOccurrence) LongString() string {
-	//return fmt.Sprintf("%s Scope: %s", t.String(), t.Scope.String())
-	return ""
+// We need to manufacture an instance of Type to act as the "assigneeType"
+// for the new ValueReference we are creating. This is because unlike
+// other types of value assignment, an enum value initializer is not
+// preceded by a type reference for the assignee. Rather the type of
+// the assignee is implicit in the scope.
+func TypeForEnumValueInitializer(mojoEnum *MojomEnum) *TypeReference {
+	enumType := NewTypeReference(mojoEnum.fullyQualifiedName, false, false,
+		mojoEnum.scope, lexer.Token{})
+	enumType.resolvedType = mojoEnum
+	return enumType
 }
 
 /////////////////////////////////////////////////////////////
 // Constant Values
 /////////////////////////////////////////////////////////////
 ///
-type ConstantValue struct {
+type ConcreteValue struct {
 	// The Type must be simple, string, or a type references
 	// whose resolvedType is an enum type. The accessor methods
 	// below return the appropriate type of value.
@@ -461,7 +547,11 @@ type ConstantValue struct {
 	value interface{}
 }
 
-func (cv ConstantValue) isSimpleType(simpleType SimpleType) bool {
+func (v *ConcreteValue) String() string {
+	return fmt.Sprintf("%v", v.value)
+}
+
+func (cv ConcreteValue) isSimpleType(simpleType SimpleType) bool {
 	if cv.valueType.Kind() == SIMPLE_TYPE {
 		if cv.valueType.(SimpleType) == simpleType {
 			return true
@@ -470,96 +560,87 @@ func (cv ConstantValue) isSimpleType(simpleType SimpleType) bool {
 	return false
 }
 
-func (cv ConstantValue) GetBoolValue() (value bool, success bool) {
+func (cv ConcreteValue) GetBoolValue() (value bool, success bool) {
 	if success = cv.isSimpleType(BOOL); success {
 		value = cv.value.(bool)
 	}
 	return
 }
 
-func (cv ConstantValue) GetDoubleValue() (value float64, success bool) {
+func (cv ConcreteValue) GetDoubleValue() (value float64, success bool) {
 	if success = cv.isSimpleType(DOUBLE); success {
 		value = cv.value.(float64)
 	}
 	return
 }
 
-func (cv ConstantValue) GetFloatValue() (value float32, success bool) {
+func (cv ConcreteValue) GetFloatValue() (value float32, success bool) {
 	if success = cv.isSimpleType(FLOAT); success {
 		value = cv.value.(float32)
 	}
 	return
 }
 
-func (cv ConstantValue) GetInt8Value() (value int8, success bool) {
+func (cv ConcreteValue) GetInt8Value() (value int8, success bool) {
 	if success = cv.isSimpleType(INT8); success {
 		value = cv.value.(int8)
 	}
 	return
 }
 
-func (cv ConstantValue) GetInt16Value() (value int16, success bool) {
+func (cv ConcreteValue) GetInt16Value() (value int16, success bool) {
 	if success = cv.isSimpleType(INT16); success {
 		value = cv.value.(int16)
 	}
 	return
 }
 
-func (cv ConstantValue) GetInt32Value() (value int32, success bool) {
+func (cv ConcreteValue) GetInt32Value() (value int32, success bool) {
 	if success = cv.isSimpleType(INT32); success {
 		value = cv.value.(int32)
 	}
 	return
 }
 
-func (cv ConstantValue) GetInt64Value() (value int64, success bool) {
+func (cv ConcreteValue) GetInt64Value() (value int64, success bool) {
 	if success = cv.isSimpleType(INT64); success {
 		value = cv.value.(int64)
 	}
 	return
 }
 
-func (cv ConstantValue) GetIntU8Value() (value uint8, success bool) {
+func (cv ConcreteValue) GetIntU8Value() (value uint8, success bool) {
 	if success = cv.isSimpleType(UINT8); success {
 		value = cv.value.(uint8)
 	}
 	return
 }
 
-func (cv ConstantValue) GetUInt16Value() (value uint16, success bool) {
+func (cv ConcreteValue) GetUInt16Value() (value uint16, success bool) {
 	if success = cv.isSimpleType(UINT16); success {
 		value = cv.value.(uint16)
 	}
 	return
 }
 
-func (cv ConstantValue) GetUInt32Value() (value uint32, success bool) {
+func (cv ConcreteValue) GetUInt32Value() (value uint32, success bool) {
 	if success = cv.isSimpleType(UINT32); success {
 		value = cv.value.(uint32)
 	}
 	return
 }
 
-func (cv ConstantValue) GetUInt64Value() (value uint64, success bool) {
+func (cv ConcreteValue) GetUInt64Value() (value uint64, success bool) {
 	if success = cv.isSimpleType(UINT64); success {
 		value = cv.value.(uint64)
 	}
 	return
 }
 
-func (cv ConstantValue) GetEnumValue() (value EnumConstantValue, success bool) {
+func (cv ConcreteValue) GetEnumValue() (value EnumValue, success bool) {
 	if cv.valueType.Kind() == TYPE_REFERENCE {
 		success = true
-		value = cv.value.(EnumConstantValue)
+		value = cv.value.(EnumValue)
 	}
 	return
-}
-
-type EnumConstantValue struct {
-	// The reference must be resolved to an MojomEnum.
-	enumType TypeReference
-
-	enumValueName string
-
-	intValue int32
 }

@@ -60,6 +60,12 @@ import (
 // STRUCT_ELEMENT       -> STRUCT_FIELD | ENUM_DECL | CONSTANT_DECL
 // STRUCT_FIELD         -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
 
+// ENUM_DECL            -> enum name lbrace ENUM_BODY rbrace semi
+// ENUM_BODY            -> {ENUM_VALUE}
+// ENUM_VALUE           -> [ATTRIBUTES] name [equals ENUM_VAL_INITIALIZER]
+// ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | integer_literal
+// ENUM_VAL_IDENTIFIER  -> IDENTIFIER {{that resolves to the name of an enum value}}
+
 // DEFAULT_VALUE        -> CONSTANT_VALUE | ENUM_VALUE_IDENTIFIER | default
 
 ////////////////////////////////////////////////////////////////////////////
@@ -159,29 +165,34 @@ func (p *Parser) parseMojomFile() bool {
 		dupeMessage := ""
 		switch nextToken.Kind {
 		case lexer.INTERFACE:
-			mojomInterface, nameToken := p.parseInterfaceDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddInterface(mojomInterface), nameToken)
+			if mojomInterface, nameToken := p.parseInterfaceDecl(attributes); mojomInterface != nil {
+				dupeMessage = p.duplicateNameMessage(p.mojomFile.AddInterface(mojomInterface), nameToken)
+			}
 		case lexer.STRUCT:
-			mojomStruct, nameToken := p.parseStructDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddStruct(mojomStruct), nameToken)
+			if mojomStruct, nameToken := p.parseStructDecl(attributes); mojomStruct != nil {
+				dupeMessage = p.duplicateNameMessage(p.mojomFile.AddStruct(mojomStruct), nameToken)
+			}
 		case lexer.UNION:
-			mojomUnion, nameToken := p.parseUnionDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddUnion(mojomUnion), nameToken)
+			if mojomUnion, nameToken := p.parseUnionDecl(attributes); mojomUnion != nil {
+				dupeMessage = p.duplicateNameMessage(p.mojomFile.AddUnion(mojomUnion), nameToken)
+			}
 		case lexer.ENUM:
-			mojomEnum, nameToken := p.parseEnumDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddEnum(mojomEnum), nameToken)
+			if mojomEnum, nameToken := p.parseEnumDecl(attributes); mojomEnum != nil {
+				dupeMessage = p.duplicateNameMessage(p.mojomFile.AddEnum(mojomEnum), nameToken)
+			}
 		case lexer.CONST:
-			constant, nameToken := p.parseConstDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddConstant(constant), nameToken)
+			if constant, nameToken := p.parseConstDecl(attributes); constant != nil {
+				dupeMessage = p.duplicateNameMessage(p.mojomFile.AddConstant(constant), nameToken)
+			}
 		default:
 			message := fmt.Sprintf("Unexpected token at %s: %s. "+
 				"Expecting interface, struct, union, enum or const.",
-				nextToken.LocationString(), nextToken)
+				nextToken.LongLocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
 			return false
 		}
 
-		if len(dupeMessage) > 0 {
+		if p.OK() && len(dupeMessage) > 0 {
 			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
@@ -231,10 +242,10 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 			switch nextToken.Kind {
 			case lexer.MODULE, lexer.INTERFACE, lexer.STRUCT, lexer.UNION, lexer.ENUM:
 				message = fmt.Sprintf("The attribute section is missing a closing ] before %v at %s.",
-					nextToken, nextToken.LocationString())
+					nextToken, nextToken.LongLocationString())
 			default:
 				message = fmt.Sprintf("Unexpected token in attributes section at %s: %v. Expecting comma or ].",
-					nextToken.LocationString(), nextToken)
+					nextToken.LongLocationString(), nextToken)
 
 			}
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
@@ -263,7 +274,7 @@ func (p *Parser) parseModuleDecl() (moduleIdentifier string) {
 	default:
 		message := fmt.Sprintf("Unexpected token at %s: %s. "+
 			"Expecting module, import, interface, struct, union, enum or constant.",
-			nextToken.LocationString(), nextToken)
+			nextToken.LongLocationString(), nextToken)
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
 		return
 	}
@@ -315,7 +326,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 	default:
 		message := fmt.Sprintf("Unexpected token at %s: %s. "+
 			"Expecting import, interface, struct, union, enum or constant.",
-			nextToken.LocationString(), nextToken)
+			nextToken.LongLocationString(), nextToken)
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
 		return
 	}
@@ -387,11 +398,12 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 			}
 			return false
 		case lexer.ENUM:
-			mojomEnum, nameToken := p.parseEnumDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddEnum(mojomEnum), nameToken)
+			if mojomEnum, nameToken := p.parseEnumDecl(attributes); mojomEnum != nil {
+				dupeMessage = p.duplicateNameMessage(mojomInterface.AddEnum(mojomEnum), nameToken)
+			}
 		case lexer.CONST:
 			constant, nameToken := p.parseConstDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddConstant(constant), nameToken)
+			dupeMessage = p.duplicateNameMessage(mojomInterface.AddConstant(constant), nameToken)
 		case lexer.RBRACE:
 			rbraceFound = true
 			if attributes != nil {
@@ -402,11 +414,11 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 		default:
 			message := fmt.Sprintf("Unexpected token within interface body at %s: %s. "+
 				"Expecting union, enum, const or an identifier",
-				nextToken.LocationString(), nextToken)
+				nextToken.LongLocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
 			return false
 		}
-		if len(dupeMessage) > 0 {
+		if p.OK() && len(dupeMessage) > 0 {
 			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
@@ -510,7 +522,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 			continue
 		default:
 			message := fmt.Sprintf("Unexpected token within method parameters at %s: %s. "+
-				"Expecting comma or ).", nextToken.LocationString(), nextToken)
+				"Expecting comma or ).", nextToken.LongLocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
 			return nil
 		}
@@ -579,11 +591,13 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 		case lexer.NAME:
 			mojomStruct.AddField(p.parseStructField(attributes))
 		case lexer.ENUM:
-			mojomEnum, nameToken := p.parseEnumDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddEnum(mojomEnum), nameToken)
+			if mojomEnum, nameToken := p.parseEnumDecl(attributes); mojomEnum != nil {
+				dupeMessage = p.duplicateNameMessage(mojomStruct.AddEnum(mojomEnum), nameToken)
+			}
 		case lexer.CONST:
-			constant, nameToken := p.parseConstDecl(attributes)
-			dupeMessage = p.duplicateNameMessage(p.mojomFile.AddConstant(constant), nameToken)
+			if constant, nameToken := p.parseConstDecl(attributes); constant != nil {
+				dupeMessage = p.duplicateNameMessage(mojomStruct.AddConstant(constant), nameToken)
+			}
 		case lexer.RBRACE:
 			rbraceFound = true
 			if attributes != nil {
@@ -594,11 +608,11 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 		default:
 			message := fmt.Sprintf("Unexpected token within struct body at %s: %s. "+
 				"Expecting field, enum or constant declaration.",
-				nextToken.LocationString(), nextToken)
+				nextToken.LongLocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
 			return false
 		}
-		if len(dupeMessage) > 0 {
+		if p.OK() && len(dupeMessage) > 0 {
 			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
@@ -637,11 +651,144 @@ func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.Mojo
 	return
 }
 
+// ENUM_DECL -> enum name lbrace ENUM_BODY rbrace semi
 func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomEnum, nameToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
-	// TODO
+	p.pushChildNode("enumDecl")
+	defer p.popNode()
+
+	if !p.match(lexer.ENUM) {
+		return
+	}
+
+	simpleName := p.parseName()
+	if !p.OK() {
+		return
+	}
+	nameToken = p.lastConsumed
+	enum = mojom.NewMojomEnum(simpleName, attributes)
+
+	if !p.match(lexer.LBRACE) {
+		return
+	}
+
+	if !p.parseEnumBody(enum) {
+		return
+	}
+
+	if !p.match(lexer.RBRACE) {
+		return
+	}
+
+	p.matchSemicolon()
+
+	return
+}
+
+// ENUM_BODY            -> {ENUM_VALUE}
+// ENUM_VALUE           -> [ATTRIBUTES] name [equals ENUM_VAL_INITIALIZER]
+func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
+	if !p.OK() {
+		return p.OK()
+	}
+	p.pushChildNode("enumBody")
+	defer p.popNode()
+
+	// The enum body forms a new scope in which it's enun values are defined.
+	p.pushScope(mojomEnum.InitAsScope(p.currentScope))
+	defer p.popScope()
+
+	rbraceFound := false
+	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
+		if !p.OK() {
+			return false
+		}
+		nextToken := p.peekNextToken("I was parsing an enum body.")
+		dupeMessage := ""
+		switch nextToken.Kind {
+		case lexer.NAME:
+			name := p.parseName()
+			nameToken := p.lastConsumed
+			var valueSpec mojom.ValueSpec
+			if p.tryMatch(lexer.EQUALS) {
+				valueSpec = p.parseEnumValueInitializer(mojomEnum)
+			}
+			dupeMessage = p.duplicateNameMessage(
+				mojomEnum.AddEnumValue(name, valueSpec, attributes), nameToken)
+		case lexer.RBRACE:
+			rbraceFound = true
+			if attributes != nil {
+				message := "Enum body ends with extranesous attributes."
+				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+			}
+			break
+		default:
+			message := fmt.Sprintf("Unexpected token within enum body at %s: %s. "+
+				"Expecting an enum name or =.",
+				nextToken.LongLocationString(), nextToken)
+			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return false
+		}
+		if p.OK() && len(dupeMessage) > 0 {
+			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
+			return false
+		}
+	}
+	return p.OK()
+}
+
+// ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | integer_literal
+// ENUM_VAL_IDENTIFIER  -> IDENTIFIER {{that resolves to the name of an enum value}}
+func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.ValueSpec {
+	if !p.OK() {
+		return nil
+	}
+	p.pushChildNode("enumValueInitializer")
+	defer p.popNode()
+
+	nextToken := p.peekNextToken("I was parsing an enum value initializer.")
+	assigneeType := mojom.TypeForEnumValueInitializer(mojoEnum)
+	switch nextToken.Kind {
+	case lexer.NAME:
+		return p.readValueReference(assigneeType)
+	case lexer.INT_CONST_DEC:
+		// TODO(rudominer)
+		var intVal int64
+		p.consumeNextToken()
+		return mojom.NewIntegerLiteralValue(assigneeType, intVal)
+	case lexer.INT_CONST_HEX:
+		// TODO(rudominer)
+		var intVal int64
+		p.consumeNextToken()
+		return mojom.NewIntegerLiteralValue(assigneeType, intVal)
+	default:
+		message := fmt.Sprintf("Unexpected token within enum value initializer at %s: %s. "+
+			"Expecting an integer literal or an identifier.",
+			nextToken.LongLocationString(), nextToken)
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return nil
+	}
+}
+
+// STRUCT_FIELD -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
+func (p *Parser) parseEnumValue(attributes *mojom.Attributes) (structField mojom.StructField) {
+	if !p.OK() {
+		return
+	}
+	p.pushChildNode("structField")
+	defer p.popNode()
+
+	fieldType := p.parseType()
+	fieldName := p.parseName()
+	ordinalValue := p.parseOrdinal()
+	if !p.matchSemicolon() {
+		return
+	}
+
+	structField = mojom.BuildStructField(fieldType, fieldName, ordinalValue, attributes, nil)
+
 	return
 }
 
@@ -701,7 +848,7 @@ func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 	firstToken = p.peekNextToken("Expecting an identifier.")
 	if firstToken.Kind != lexer.NAME {
 		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting an identifier.",
-			firstToken.LocationString(), firstToken)
+			firstToken.LongLocationString(), firstToken)
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
 		return
 	}
@@ -714,7 +861,7 @@ func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 		identifier += "."
 	}
 	message := fmt.Sprintf("Invalid identifier: %s at %s. Identifier may not end with a dot.",
-		identifier, firstToken.LocationString())
+		identifier, firstToken.LongLocationString())
 	p.err = parserError{E_UNEXPECTED_TOKEN, message}
 	return
 }
@@ -778,7 +925,7 @@ func (p *Parser) match(expectedKind lexer.TokenKind) bool {
 	}
 	if nextToken.Kind != expectedKind {
 		message = fmt.Sprintf("Unexpected token at %s: %s. Expecting %s.",
-			nextToken.LocationString(), nextToken, expectedKind)
+			nextToken.LongLocationString(), nextToken, expectedKind)
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
 		return false
 	}
@@ -809,7 +956,7 @@ func (p *Parser) matchSemicolonToken(previousToken lexer.Token) bool {
 		return true
 	}
 	message := fmt.Sprintf("Missing semicolon after %s at %s.",
-		previousToken, previousToken.LocationString())
+		previousToken, previousToken.LongLocationString())
 	p.err = parserError{E_UNEXPECTED_TOKEN, message}
 	return false
 }
@@ -843,7 +990,7 @@ func (p *Parser) readType() mojom.Type {
 		mojomType = p.tryReadMapType()
 	}
 	if mojomType == nil {
-		mojomType = p.readUserDefinedType()
+		mojomType = p.readTypeReference()
 	}
 
 	return mojomType
@@ -872,7 +1019,7 @@ func (p *Parser) tryReadBuiltInType() mojom.Type {
 			if !p.OK() {
 				token := p.lastSeen
 				message := fmt.Sprintf("Unexpected token at %s: %s. Expecting a type of handle.",
-					token.LocationString(), token)
+					token.LongLocationString(), token)
 				p.err = parserError{E_UNEXPECTED_TOKEN, message}
 				return nil
 			}
@@ -880,7 +1027,7 @@ func (p *Parser) tryReadBuiltInType() mojom.Type {
 				typeName = fmt.Sprintf("%s<%s>", typeName, handleType)
 				if builtInType, ok = mojom.BuiltInTypeMap[typeName]; !ok {
 					message := fmt.Sprintf("Unrecognized type of handle at %s: %s.",
-						typeNameToken.LocationString(), typeName)
+						typeNameToken.LongLocationString(), typeName)
 					p.err = parserError{E_UNEXPECTED_TOKEN, message}
 					return nil
 				}
@@ -896,7 +1043,7 @@ func (p *Parser) tryReadBuiltInType() mojom.Type {
 		if builtInType, ok = mojom.BuiltInTypeMap[typeName+"?"]; !ok {
 			message := fmt.Sprintf("The type %s? at %s is invalid because the "+
 				"type %s may not be made nullable.",
-				typeName, typeNameToken.LocationString(), typeName)
+				typeName, typeNameToken.LongLocationString(), typeName)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
 			return nil
 		}
@@ -919,7 +1066,7 @@ func (p *Parser) tryReadMapType() mojom.Type {
 	return nil
 }
 
-func (p *Parser) readUserDefinedType() mojom.Type {
+func (p *Parser) readTypeReference() mojom.Type {
 	if !p.OK() {
 		return nil
 	}
@@ -935,10 +1082,24 @@ func (p *Parser) readUserDefinedType() mojom.Type {
 	if !p.OK() {
 		return nil
 	}
-	userDefinedType := mojom.NewTypeReference(identifier, nullable,
+	typeReference := mojom.NewTypeReference(identifier, nullable,
 		interfaceRequest, p.currentScope, identifierToken)
-	p.mojomDescriptor.RegisterUnresolvedTypeReference(userDefinedType)
-	return userDefinedType
+	p.mojomDescriptor.RegisterUnresolvedTypeReference(typeReference)
+	return typeReference
+}
+
+func (p *Parser) readValueReference(assigneeType mojom.Type) mojom.ValueSpec {
+	if !p.OK() {
+		return nil
+	}
+	identifier, identifierToken := p.parseIdentifier()
+	if !p.OK() {
+		return nil
+	}
+	valueReference := mojom.NewValueReference(assigneeType, identifier,
+		p.currentScope, identifierToken)
+	p.mojomDescriptor.RegisterUnresolvedValueReference(valueReference)
+	return valueReference
 }
 
 ////////////////// Scope Stack /////////////////////
@@ -1037,7 +1198,7 @@ func (p *Parser) duplicateNameMessage(dupeError *mojom.DuplicateNameError,
 	if dupeError.ExistingType() != nil {
 		return fmt.Sprintf("%s:%s. Duplicate definition for name '%s'. "+
 			"Existing definition: %s %s in %s.", p.mojomFile.FileName,
-			nameToken.LocationString(), nameToken.Text,
+			nameToken.ShortLocationString(), nameToken.Text,
 			dupeError.ExistingType().Kind(),
 			dupeError.ExistingType().FullyQualifiedName(),
 			dupeError.ExistingType().Scope())

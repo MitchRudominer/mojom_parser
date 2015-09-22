@@ -9,6 +9,7 @@ type ScopeKind int
 
 const (
 	SCOPE_ABSTRACT_MODULE ScopeKind = iota
+	SCOPE_ENUM
 	SCOPE_FILE_MODULE
 	SCOPE_INTERFACE
 	SCOPE_STRUCT
@@ -35,7 +36,7 @@ type Scope struct {
 	fullyQualifiedName string
 	parentScope        *Scope
 	typesByName        map[string]UserDefinedType
-	constantsByName    map[string]*UserDefinedConstant
+	valuesByName       map[string]UserDefinedValue
 	// file is nil for abstract module scopes
 	file       *MojomFile
 	descriptor *MojomDescriptor
@@ -48,7 +49,7 @@ func (scope *Scope) init(kind ScopeKind, shortName string,
 	scope.fullyQualifiedName = fullyQualifiedName
 	scope.parentScope = parentScope
 	scope.typesByName = make(map[string]UserDefinedType)
-	scope.constantsByName = make(map[string]*UserDefinedConstant)
+	scope.valuesByName = make(map[string]UserDefinedValue)
 	scope.descriptor = descriptor
 }
 
@@ -71,6 +72,11 @@ func NewLexicalScope(kind ScopeKind, parentScope *Scope,
 	case SCOPE_INTERFACE, SCOPE_STRUCT:
 		if parentScope == nil || parentScope.kind != SCOPE_FILE_MODULE {
 			panic("An interface or struct lexical scope must have a parent lexical scope of type FILE_MODULE.")
+		}
+		fullyQualifiedName = parentScope.fullyQualifiedName + "." + shortName
+	case SCOPE_ENUM:
+		if parentScope == nil || parentScope.kind == SCOPE_ABSTRACT_MODULE {
+			panic("An enum lexical scope must have a parent lexical scope not an ABSTRACT_MODULE scope.")
 		}
 		fullyQualifiedName = parentScope.fullyQualifiedName + "." + shortName
 	case SCOPE_ABSTRACT_MODULE:
@@ -123,7 +129,7 @@ func (s *Scope) String() string {
 // a value. Exactly one of the two fields will be non-nil.
 type DuplicateNameError struct {
 	existingType  UserDefinedType
-	existingValue *UserDefinedConstant
+	existingValue UserDefinedValue
 }
 
 func (d *DuplicateNameError) ExistingType() UserDefinedType {
@@ -153,12 +159,12 @@ func (scope *Scope) registerTypeWithNamePrefix(userDefinedType UserDefinedType, 
 	return nil
 }
 
-func (scope *Scope) registerConstantWithNamePrefix(userDefinedConstant *UserDefinedConstant, namePrefix string) *DuplicateNameError {
-	registrationName := namePrefix + userDefinedConstant.simpleName
-	if existingConst := scope.constantsByName[registrationName]; existingConst != nil {
+func (scope *Scope) registerValueWithNamePrefix(value UserDefinedValue, namePrefix string) *DuplicateNameError {
+	registrationName := namePrefix + value.SimpleName()
+	if existingConst := scope.valuesByName[registrationName]; existingConst != nil {
 		return &DuplicateNameError{existingValue: existingConst}
 	}
-	scope.constantsByName[registrationName] = userDefinedConstant
+	scope.valuesByName[registrationName] = value
 	if scope.parentScope != nil {
 		if scope.kind == SCOPE_FILE_MODULE {
 			if scope.parentScope.kind != SCOPE_ABSTRACT_MODULE {
@@ -168,8 +174,8 @@ func (scope *Scope) registerConstantWithNamePrefix(userDefinedConstant *UserDefi
 		} else {
 			namePrefix = scope.shortName + "." + namePrefix
 		}
-		if err := scope.parentScope.registerConstantWithNamePrefix(
-			userDefinedConstant, namePrefix); err != nil {
+		if err := scope.parentScope.registerValueWithNamePrefix(
+			value, namePrefix); err != nil {
 			return err
 		}
 	}
@@ -180,8 +186,8 @@ func (scope *Scope) RegisterType(userDefinedType UserDefinedType) *DuplicateName
 	return scope.registerTypeWithNamePrefix(userDefinedType, "")
 }
 
-func (scope *Scope) RegisterConstant(userDefinedConstant *UserDefinedConstant) *DuplicateNameError {
-	return scope.registerConstantWithNamePrefix(userDefinedConstant, "")
+func (scope *Scope) RegisterValue(value UserDefinedValue) *DuplicateNameError {
+	return scope.registerValueWithNamePrefix(value, "")
 }
 
 func (scope *Scope) LookupType(name string) UserDefinedType {
@@ -193,13 +199,13 @@ func (scope *Scope) LookupType(name string) UserDefinedType {
 	}
 	return scope.parentScope.LookupType(name)
 }
-func (scope *Scope) LookupConstant(name string) *UserDefinedConstant {
-	if userDefinedConstant, ok := scope.constantsByName[name]; ok {
+func (scope *Scope) LookupValue(name string) UserDefinedValue {
+	if userDefinedValue, ok := scope.valuesByName[name]; ok {
 
-		return userDefinedConstant
+		return userDefinedValue
 	}
 	if scope.parentScope == nil {
 		return nil
 	}
-	return scope.parentScope.LookupConstant(name)
+	return scope.parentScope.LookupValue(name)
 }

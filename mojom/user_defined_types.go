@@ -34,10 +34,10 @@ func (k UserDefinedTypeKind) String() string {
 // MojomStruct, MojomInterface, MojomEnum and MojomUnion
 /////////////////////////////////////////////////////////////
 type UserDefinedType interface {
-	Kind() UserDefinedTypeKind
-	TypeKey() string
 	SimpleName() string
 	FullyQualifiedName() string
+	Kind() UserDefinedTypeKind
+	TypeKey() string
 	Scope() *Scope
 	Identical(other UserDefinedType) bool
 }
@@ -180,12 +180,12 @@ func (s MojomStruct) ParameterString() string {
 			str += ", "
 		}
 		attributesString := ""
-		if f.Attributes != nil {
-			attributesString = fmt.Sprintf("%s", f.Attributes)
+		if f.attributes != nil {
+			attributesString = fmt.Sprintf("%s", f.attributes)
 		}
 		ordinalString := ""
-		if f.DeclaredOrdinal >= 0 {
-			ordinalString = fmt.Sprintf("@%d", f.DeclaredOrdinal)
+		if f.declaredOrdinal >= 0 {
+			ordinalString = fmt.Sprintf("@%d", f.declaredOrdinal)
 		}
 		str += fmt.Sprintf("%s%s %s%s", attributesString, f.fieldType,
 			f.SimpleName, ordinalString)
@@ -194,17 +194,17 @@ func (s MojomStruct) ParameterString() string {
 }
 
 type StructField struct {
-	ValueDeclarationData
+	VariableDeclarationData
 
 	fieldType    Type
-	defaultValue *ConstantOccurrence
+	defaultValue *ValueSpec
 	offset       int32
 }
 
 func BuildStructField(fieldType Type, name string,
-	ordinal int, attributes *Attributes, defaultValue *ConstantOccurrence) (field StructField) {
+	ordinal int, attributes *Attributes, defaultValue *ValueSpec) (field StructField) {
 	field = StructField{fieldType: fieldType, defaultValue: defaultValue}
-	field.InitValueDeclarationData(name, attributes, ordinal)
+	field.InitVariableDeclarationData(name, attributes, ordinal)
 	return
 }
 
@@ -247,7 +247,7 @@ func (i *MojomInterface) InitAsScope(parentScope *Scope) *Scope {
 }
 
 func (i *MojomInterface) AddMethod(method *MojomMethod) {
-	i.methodsByName[method.SimpleName] = method
+	i.methodsByName[method.simpleName] = method
 }
 
 func (MojomInterface) Kind() UserDefinedTypeKind {
@@ -273,7 +273,7 @@ func (m *MojomInterface) String() string {
 }
 
 type MojomMethod struct {
-	ValueDeclarationData
+	VariableDeclarationData
 
 	parameters *MojomStruct
 
@@ -283,7 +283,7 @@ type MojomMethod struct {
 func NewMojomMethod(name string, ordinalValue int, params,
 	responseParams *MojomStruct) *MojomMethod {
 	mojomMethod := new(MojomMethod)
-	mojomMethod.InitValueDeclarationData(name, nil, ordinalValue)
+	mojomMethod.InitVariableDeclarationData(name, nil, ordinalValue)
 	mojomMethod.parameters = params
 	mojomMethod.responseParameters = responseParams
 	return mojomMethod
@@ -330,13 +330,14 @@ type UnionField struct {
 /////////////////////////////////////////////////////////////
 type MojomEnum struct {
 	UserDefinedTypeBase
+	DeclarationContainer
 
-	values []EnumValue
+	values []*EnumValue
 }
 
 func NewMojomEnum(simpleName string, attributes *Attributes) *MojomEnum {
 	mojomEnum := new(MojomEnum)
-	mojomEnum.values = make([]EnumValue, 0)
+	mojomEnum.values = make([]*EnumValue, 0)
 	mojomEnum.Init(simpleName, mojomEnum, attributes)
 	return mojomEnum
 }
@@ -345,12 +346,103 @@ func (MojomEnum) Kind() UserDefinedTypeKind {
 	return ENUM_TYPE
 }
 
-type EnumValue struct {
-	ValueDeclarationData
+func (e *MojomEnum) InitAsScope(parentScope *Scope) *Scope {
+	e.containedDeclarations = NewLexicalScope(SCOPE_ENUM, parentScope,
+		e.simpleName, parentScope.file)
+	return e.containedDeclarations
+}
 
-	// The value must eventually resolve to a ConstantValue of type integer or
-	// EnumConstantValue.
-	value ConstantOccurrence
+// Adds an EnumValue to this enum
+func (e *MojomEnum) AddEnumValue(name string, valueSpec ValueSpec,
+	attributes *Attributes) *DuplicateNameError {
+	enumValue := new(EnumValue)
+	enumValue.Init(name, enumValue, valueSpec, attributes)
+	e.values = append(e.values, enumValue)
+	return enumValue.RegisterInScope(e.containedDeclarations)
+}
+
+func (e *MojomEnum) String() string {
+	s := fmt.Sprintf("\n---------enum--------------\n")
+	s += fmt.Sprintf("%s\n", e.UserDefinedTypeBase)
+	s += "     Values\n"
+	s += "     ------\n"
+	for _, value := range e.values {
+		s += fmt.Sprintf("     %s", value)
+	}
+	return s
+}
+
+type EnumValue struct {
+	UserDefinedValueBase
+
+	enumType *MojomEnum
+}
+
+func (enumValue *EnumValue) AsDeclaredConstant() *UserDefinedConstant {
+	return nil
+}
+
+func (enumValue *EnumValue) AsEnumValue() *EnumValue {
+	return enumValue
+}
+
+func (ev *EnumValue) String() string {
+	return fmt.Sprintf("%s\n", ev.UserDefinedValueBase)
+}
+
+/////////////////////////////////////////////////////////////
+//Declared Values
+/////////////////////////////////////////////////////////////
+
+// A UserDefinedValue is either a UserDefinedConstant or an EnumValue
+type UserDefinedValue interface {
+	SimpleName() string
+	AsDeclaredConstant() *UserDefinedConstant
+	AsEnumValue() *EnumValue
+	RegisterInScope(scope *Scope) *DuplicateNameError
+}
+
+type UserDefinedValueBase struct {
+	ValueDeclarationData
+	thisValue          UserDefinedValue
+	fullyQualifiedName string
+	valueKey           string
+	valueSpec          ValueSpec
+}
+
+// This method is invoked from the constructors for the containing types:
+// NewMojomInterface, NewMojomStruct, NewMojomEnum, NewMojomUnion
+func (b *UserDefinedValueBase) Init(simpleName string, thisValue UserDefinedValue,
+	valueSpec ValueSpec, attributes *Attributes) {
+	b.thisValue = thisValue
+	b.simpleName = simpleName
+	b.valueSpec = valueSpec
+	b.attributes = attributes
+}
+
+func (v *UserDefinedValueBase) RegisterInScope(scope *Scope) *DuplicateNameError {
+	if err := scope.RegisterValue(v.thisValue); err != nil {
+		return err
+	}
+	v.fullyQualifiedName = scope.fullyQualifiedName + "." + v.simpleName
+	v.valueKey = computeTypeKey(v.fullyQualifiedName)
+	scope.file.Descriptor.valuesByKey[v.valueKey] = v.thisValue
+	return nil
+}
+
+func (b UserDefinedValueBase) String() string {
+	attributeString := ""
+	if b.attributes != nil {
+		attributeString = fmt.Sprintf("%s", b.attributes.List)
+	}
+	concreteValueString := ""
+	if b.valueSpec != nil {
+		concreteValue := b.valueSpec.ResolvedValue()
+		if concreteValue != nil {
+			concreteValueString = fmt.Sprintf(" = %s", concreteValue)
+		}
+	}
+	return fmt.Sprintf("%s%s%s", attributeString, b.simpleName, concreteValueString)
 }
 
 /////////////////////////////////////////////////////////////
@@ -359,25 +451,17 @@ type EnumValue struct {
 
 // This represents a Mojom constant declaration.
 type UserDefinedConstant struct {
-	attributes         *Attributes
-	simpleName         string
-	fullyQualifiedName string
-	constantKey        string
+	UserDefinedValueBase
 
 	// The type must be a string, bool, float, double, or integer type.
 	valueType Type
-
-	// The value must eventually resolve to the same type as |type|.
-	value ConstantOccurrence
 }
 
-func (c *UserDefinedConstant) RegisterInScope(scope *Scope) *DuplicateNameError {
-	if err := scope.RegisterConstant(c); err != nil {
-		return err
-	}
-	c.fullyQualifiedName = scope.fullyQualifiedName + "." + c.simpleName
-	c.constantKey = computeTypeKey(c.fullyQualifiedName)
-	scope.file.Descriptor.constantsByKey[c.constantKey] = c
+func (constant *UserDefinedConstant) AsDeclaredConstant() *UserDefinedConstant {
+	return constant
+}
+
+func (constant *UserDefinedConstant) AsEnumValue() *EnumValue {
 	return nil
 }
 
@@ -386,16 +470,30 @@ func (c *UserDefinedConstant) RegisterInScope(scope *Scope) *DuplicateNameError 
 /////////////////////////////////////////////////////////////
 
 type ValueDeclarationData struct {
-	SimpleName      string
-	Attributes      *Attributes
-	DeclaredOrdinal int
+	simpleName string
+	attributes *Attributes
 }
 
 func (v *ValueDeclarationData) InitValueDeclarationData(simpleName string,
+	attributes *Attributes) {
+	v.simpleName = simpleName
+	v.attributes = attributes
+}
+
+func (v *ValueDeclarationData) SimpleName() string {
+	return v.simpleName
+}
+
+type VariableDeclarationData struct {
+	ValueDeclarationData
+	declaredOrdinal int
+}
+
+func (v *VariableDeclarationData) InitVariableDeclarationData(simpleName string,
 	attributes *Attributes, ordinal int) {
-	v.SimpleName = simpleName
-	v.Attributes = attributes
-	v.DeclaredOrdinal = ordinal
+	v.simpleName = simpleName
+	v.attributes = attributes
+	v.declaredOrdinal = ordinal
 }
 
 type Attributes struct {

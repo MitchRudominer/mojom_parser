@@ -146,8 +146,12 @@ type Token struct {
 // messages. This will be used for example in an error message that looks
 // like the following:
 // Unexpected token at line 5, column 6: '###'. Expecting '{'.
-func (t Token) LocationString() string {
+func (t Token) ShortLocationString() string {
 	return fmt.Sprintf("%d,%d", t.LineNo+1, t.LinePos+1)
+}
+
+func (t Token) LongLocationString() string {
+	return fmt.Sprintf("line %d, column %d", t.LineNo+1, t.LinePos+1)
 }
 
 // Is this the EOF token that represent the end of the token stream?
