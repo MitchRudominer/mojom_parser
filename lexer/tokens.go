@@ -109,15 +109,31 @@ func (tokenKind TokenKind) String() string {
 
 	// Keywords
 	case IMPORT:
-		return "import"
-	case INTERFACE:
-		return "'interface'"
+		return "'import'"
 	case MODULE:
 		return "'module'"
 	case STRUCT:
 		return "'struct'"
+	case UNION:
+		return "'import'"
+	case INTERFACE:
+		return "'interface'"
+	case ENUM:
+		return "'enum'"
+	case CONST:
+		return "'const'"
+	case TRUE:
+		return "'true'"
+	case FALSE:
+		return "'false'"
+	case DEFAULT:
+		return "'default'"
 
 	// Constants
+	case INT_CONST_DEC:
+		return "decimal integer literal"
+	case INT_CONST_HEX:
+		return "hex integer literal"
 	case ORDINAL:
 		return "an ordinal"
 	case STRING_LITERAL:
@@ -169,7 +185,7 @@ func (t Token) EOF() bool {
 // Unexpected token at line 5, column 6: '###'. Expecting '{'.
 func (token Token) String() string {
 	switch token.Kind {
-	case ERROR_UNKNOWN, NAME, STRING_LITERAL:
+	case ERROR_UNKNOWN, NAME, STRING_LITERAL, INT_CONST_DEC, INT_CONST_HEX:
 		return fmt.Sprintf("'%s'", token.Text)
 
 	default:

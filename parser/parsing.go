@@ -43,7 +43,7 @@ import (
 // MOJOM_DECL           -> INTRFC_DECL | STRUCT_DECL | UNION_DECL | ENUM_DECL | CONSTANT_DECL
 
 // ATTRIBUTES           -> lbracket ATTR_ASSIGNMENT { comma, ATTR_ASSIGNMENT}
-// ATTR_ASSIGNMENT      -> name equals name | name equals string_literal
+// ATTR_ASSIGNMENT      -> name equals name | name equals literal
 
 // INTRFC_DECL          -> interface name lbrace INTRFC_BODY rbrace semi
 // INTRFC_BODY          -> {ATTR_INTRFC_ELEMENT}
@@ -61,7 +61,7 @@ import (
 // STRUCT_FIELD         -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
 
 // ENUM_DECL            -> enum name lbrace ENUM_BODY rbrace semi
-// ENUM_BODY            -> {ENUM_VALUE}
+// ENUM_BODY            -> [ ENUN_VALUE {, ENUM_VALUE} [,] ]
 // ENUM_VALUE           -> [ATTRIBUTES] name [equals ENUM_VAL_INITIALIZER]
 // ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | integer_literal
 // ENUM_VAL_IDENTIFIER  -> IDENTIFIER {{that resolves to the name of an enum value}}
@@ -201,7 +201,7 @@ func (p *Parser) parseMojomFile() bool {
 }
 
 // ATTRIBUTES      -> lbracket ATTR_ASSIGNMENT { comma, ATTR_ASSIGNMENT}
-// ATTR_ASSIGNMENT -> name equals name | name equals string_literal
+// ATTR_ASSIGNMENT -> name equals name | name equals literal
 func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 	if !p.OK() {
 		return
@@ -226,7 +226,15 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 		if !p.match(lexer.EQUALS) {
 			return
 		}
-		value := p.parseName()
+
+		var value mojom.ConcreteValue
+		if p.peekNextToken("Expecting to find an attribute value.").Kind == lexer.NAME {
+			text := p.parseName()
+			value = mojom.MakeStringConcreteValue(text)
+		} else {
+			value = p.parseLiteral()
+		}
+
 		if !p.OK() {
 			return
 		}
@@ -308,7 +316,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 			return
 		}
 
-		p.mojomFile.AddImport(fileName[1 : len(fileName)-1])
+		p.mojomFile.AddImport(fileName)
 		nextToken = p.peekNextToken("No Mojom declarations found.")
 		p.popNode()
 		if !p.OK() {
@@ -687,8 +695,8 @@ func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomE
 	return
 }
 
-// ENUM_BODY            -> {ENUM_VALUE}
-// ENUM_VALUE           -> [ATTRIBUTES] name [equals ENUM_VAL_INITIALIZER]
+// ENUM_BODY     -> [ ENUN_VALUE {, ENUM_VALUE} [,] ]
+// ENUM_VALUE    -> [ATTRIBUTES] name [equals ENUM_VAL_INITIALIZER]
 func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 	if !p.OK() {
 		return p.OK()
@@ -701,6 +709,8 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 	defer p.popScope()
 
 	rbraceFound := false
+	trailingCommaFound := false
+	firstValue := true
 	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
 		if !p.OK() {
 			return false
@@ -709,6 +719,14 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 		dupeMessage := ""
 		switch nextToken.Kind {
 		case lexer.NAME:
+			if !firstValue && !trailingCommaFound {
+				message := fmt.Sprintf("Expecting a comma after %s before "+
+					"the next value %s at %s. ", p.lastConsumed, nextToken,
+					nextToken.LongLocationString())
+				p.err = parserError{E_UNEXPECTED_TOKEN, message}
+				return false
+			}
+			firstValue = false
 			name := p.parseName()
 			nameToken := p.lastConsumed
 			var valueSpec mojom.ValueSpec
@@ -717,6 +735,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 			}
 			dupeMessage = p.duplicateNameMessage(
 				mojomEnum.AddEnumValue(name, valueSpec, attributes), nameToken)
+			trailingCommaFound = p.tryMatch(lexer.COMMA)
 		case lexer.RBRACE:
 			rbraceFound = true
 			if attributes != nil {
@@ -724,9 +743,11 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
 			}
 			break
+		case lexer.COMMA:
+
 		default:
 			message := fmt.Sprintf("Unexpected token within enum body at %s: %s. "+
-				"Expecting an enum name or =.",
+				"Expecting either another enum value or }.",
 				nextToken.LongLocationString(), nextToken)
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
 			return false
@@ -753,23 +774,17 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 	switch nextToken.Kind {
 	case lexer.NAME:
 		return p.readValueReference(assigneeType)
-	case lexer.INT_CONST_DEC:
-		// TODO(rudominer)
-		var intVal int64
-		p.consumeNextToken()
-		return mojom.NewIntegerLiteralValue(assigneeType, intVal)
-	case lexer.INT_CONST_HEX:
-		// TODO(rudominer)
-		var intVal int64
-		p.consumeNextToken()
-		return mojom.NewIntegerLiteralValue(assigneeType, intVal)
+	case lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
+		if intVal, ok := p.readIntegerLiteral(); ok {
+			return mojom.NewIntegerLiteralValue(assigneeType, intVal)
+		}
 	default:
 		message := fmt.Sprintf("Unexpected token within enum value initializer at %s: %s. "+
 			"Expecting an integer literal or an identifier.",
 			nextToken.LongLocationString(), nextToken)
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
-		return nil
 	}
+	return nil
 }
 
 // STRUCT_FIELD -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
@@ -828,6 +843,37 @@ func (p *Parser) parseType() mojom.Type {
 	return p.readType()
 }
 
+func (p *Parser) parseLiteral() mojom.ConcreteValue {
+	if !p.OK() {
+		return mojom.ConcreteValue{}
+	}
+	p.pushChildNode("literal")
+	defer p.popNode()
+
+	nextToken := p.peekNextToken("I was parsing a literal.")
+	switch nextToken.Kind {
+	case lexer.STRING_LITERAL:
+		p.consumeNextToken()
+		return mojom.MakeStringConcreteValue(p.parseStringLiteral())
+	case lexer.TRUE:
+		p.consumeNextToken()
+		return mojom.MakeBoolConcreteValue(true)
+	case lexer.FALSE:
+		p.consumeNextToken()
+		return mojom.MakeBoolConcreteValue(true)
+	case lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
+		p.consumeNextToken()
+		value, _ := p.readIntegerLiteral()
+		return mojom.MakeInt64ConcreteValue(value)
+	default:
+		message := fmt.Sprintf("Unexpected token %s at %s. "+
+			"Expecting a string, integer or boolean literal.",
+			nextToken, nextToken.LongLocationString())
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return mojom.ConcreteValue{}
+	}
+}
+
 func (p *Parser) parseStringLiteral() (literal string) {
 	if !p.OK() {
 		return
@@ -835,7 +881,12 @@ func (p *Parser) parseStringLiteral() (literal string) {
 	p.pushChildNode("stringLiteral")
 	defer p.popNode()
 
-	return p.readText(lexer.STRING_LITERAL)
+	text := p.readText(lexer.STRING_LITERAL)
+	length := len(text)
+	if (length < 2) || (text[0] != '"') || (text[length-1] != '"') {
+		panic("Lexer returned a string literal token whose text was not delimited by quotation marks.")
+	}
+	return text[1 : length-1]
 }
 
 func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
@@ -974,6 +1025,45 @@ func (p *Parser) readText(kind lexer.TokenKind) (text string) {
 		return
 	}
 	return p.lastConsumed.Text
+}
+
+func (p *Parser) readIntegerLiteral() (int64, bool) {
+	nextToken := p.peekNextToken("I was parsing an integer literal.")
+	p.consumeNextToken()
+	base := 10
+	intText := p.lastConsumed.Text
+	switch nextToken.Kind {
+	case lexer.INT_CONST_DEC:
+	case lexer.INT_CONST_HEX:
+		if len(intText) < 3 {
+			message := fmt.Sprintf("Invalid hex integer literal"+
+				" '%s' at %s.", intText, nextToken.LongLocationString())
+			p.err = parserError{E_INTEGER_PARSE_ERROR, message}
+			return 0, false
+		}
+		intText = intText[2:]
+		base = 16
+
+	default:
+		panic("readIntegerLiteral() should only be invoked when the next " +
+			"token an integer literal.")
+	}
+
+	intVal, err := strconv.ParseInt(intText, base, 64)
+	if err == nil {
+		return intVal, true
+	}
+	message := "readIntegerLiteral error."
+	switch err.(*strconv.NumError).Err {
+	case strconv.ErrRange:
+		message = fmt.Sprintf("Integer literal value out of range: "+
+			"%s at %s.", intText, nextToken.LongLocationString())
+	case strconv.ErrSyntax:
+		panic(fmt.Sprintf("Lexer allowed unparsable integer literal: %s. "+
+			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
+	}
+	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
+	return 0, false
 }
 
 ///////////////// Methods for parsing typess ////////
@@ -1206,5 +1296,4 @@ func (p *Parser) duplicateNameMessage(dupeError *mojom.DuplicateNameError,
 	} else {
 		return "frog"
 	}
-
 }

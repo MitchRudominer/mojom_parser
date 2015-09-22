@@ -514,5 +514,10 @@ func NewAttributes() *Attributes {
 }
 
 type MojomAttribute struct {
-	Key, Value string
+	Key   string
+	Value ConcreteValue
+}
+
+func (ma MojomAttribute) String() string {
+	return fmt.Sprintf("%s=%s ", ma.Key, ma.Value)
 }

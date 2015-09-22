@@ -547,8 +547,24 @@ type ConcreteValue struct {
 	value interface{}
 }
 
-func (v *ConcreteValue) String() string {
-	return fmt.Sprintf("%v", v.value)
+func (cv ConcreteValue) String() string {
+	return fmt.Sprintf("%v", cv.value)
+}
+
+func makeBuiltinConcreteValue(typeName string, value interface{}) ConcreteValue {
+	return ConcreteValue{BuiltInTypeMap[typeName], value}
+}
+
+func MakeStringConcreteValue(text string) ConcreteValue {
+	return makeBuiltinConcreteValue("string", text)
+}
+
+func MakeBoolConcreteValue(value bool) ConcreteValue {
+	return makeBuiltinConcreteValue("bool", value)
+}
+
+func MakeInt64ConcreteValue(value int64) ConcreteValue {
+	return makeBuiltinConcreteValue("int64", value)
 }
 
 func (cv ConcreteValue) isSimpleType(simpleType SimpleType) bool {
