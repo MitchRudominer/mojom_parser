@@ -42,14 +42,14 @@ func (d *MojomDescriptor) Resolve() error {
 
 	errorMessage := "There are still some unresolved references.\n"
 	if numUnresolvedTypeReferences > 0 {
-		errorMessage += "\nNo type defintions found for the following identifiers:\n"
+		errorMessage += "\nNo defintion found for the following types:\n"
 		errorMessage += "-------------------------------------------------------\n"
 		for _, ref := range d.unresolvedTypeReferences {
 			errorMessage += fmt.Sprintf("%s\n", ref.LongString())
 		}
 	}
 	if numUnresolvedValueReferences > 0 {
-		errorMessage += "\nNo constant defintions found for the following identifiers:\n"
+		errorMessage += "\nNo defintion found for the following values:\n"
 		errorMessage += "-----------------------------------------------------------\n"
 		for _, ref := range d.unresolvedValueReferences {
 			errorMessage += fmt.Sprintf("%s\n", ref.LongString())

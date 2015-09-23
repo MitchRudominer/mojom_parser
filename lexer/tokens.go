@@ -96,6 +96,10 @@ func (tokenKind TokenKind) String() string {
 		return "','"
 	case DOT:
 		return "'.'"
+	case MINUS:
+		return "'-'"
+	case PLUS:
+		return "'+'"
 	case AMP:
 		return "'&'"
 	case QSTN:
@@ -134,6 +138,8 @@ func (tokenKind TokenKind) String() string {
 		return "decimal integer literal"
 	case INT_CONST_HEX:
 		return "hex integer literal"
+	case FLOAT_CONST:
+		return "float literal"
 	case ORDINAL:
 		return "an ordinal"
 	case STRING_LITERAL:
@@ -185,7 +191,7 @@ func (t Token) EOF() bool {
 // Unexpected token at line 5, column 6: '###'. Expecting '{'.
 func (token Token) String() string {
 	switch token.Kind {
-	case ERROR_UNKNOWN, NAME, STRING_LITERAL, INT_CONST_DEC, INT_CONST_HEX:
+	case ERROR_UNKNOWN, NAME, STRING_LITERAL, INT_CONST_DEC, INT_CONST_HEX, FLOAT_CONST:
 		return fmt.Sprintf("'%s'", token.Text)
 
 	default:

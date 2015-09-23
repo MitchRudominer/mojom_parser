@@ -63,10 +63,18 @@ import (
 // ENUM_DECL            -> enum name lbrace ENUM_BODY rbrace semi
 // ENUM_BODY            -> [ ENUN_VALUE {, ENUM_VALUE} [,] ]
 // ENUM_VALUE           -> [ATTRIBUTES] name [equals ENUM_VAL_INITIALIZER]
-// ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | integer_literal
+// ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | INT_LITERAL
 // ENUM_VAL_IDENTIFIER  -> IDENTIFIER {{that resolves to the name of an enum value}}
 
 // DEFAULT_VALUE        -> CONSTANT_VALUE | ENUM_VALUE_IDENTIFIER | default
+
+// LITERAL              -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
+// BOOL_LITERAL         -> true | false
+// NUMBER_LITERAL       -> [plus | minus] POS_NUM_LITERAL
+// NUMBER_LITERAL       -> FLOAT_SPECIAL_IDENTIFIER
+// POS_NUM_LITERAL      -> POS_INT_LITERAL | POS_FLOAT_LITERAL
+// POS_INT_LITERAL      -> int_const_dec | int_const_hex
+// POS_FLOAT_LITERAL    -> float_const
 
 ////////////////////////////////////////////////////////////////////////////
 // parseX() methods follow.
@@ -760,7 +768,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 	return p.OK()
 }
 
-// ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | integer_literal
+// ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | INT_LITERAL
 // ENUM_VAL_IDENTIFIER  -> IDENTIFIER {{that resolves to the name of an enum value}}
 func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.ValueSpec {
 	if !p.OK() {
@@ -769,22 +777,38 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 	p.pushChildNode("enumValueInitializer")
 	defer p.popNode()
 
-	nextToken := p.peekNextToken("I was parsing an enum value initializer.")
-	assigneeType := mojom.TypeForEnumValueInitializer(mojoEnum)
-	switch nextToken.Kind {
-	case lexer.NAME:
-		return p.readValueReference(assigneeType)
-	case lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
-		if intVal, ok := p.readIntegerLiteral(); ok {
-			return mojom.NewIntegerLiteralValue(assigneeType, intVal)
-		}
-	default:
-		message := fmt.Sprintf("Unexpected token within enum value initializer at %s: %s. "+
-			"Expecting an integer literal or an identifier.",
-			nextToken.LongLocationString(), nextToken)
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+	valueSpec := p.parseValue(mojom.TypeForEnumValueInitializer(mojoEnum))
+	if valueSpec == nil {
+		return nil
 	}
-	return nil
+	concreteValue := valueSpec.ResolvedValue()
+	if concreteValue != nil && !concreteValue.Type().AllowedAsEnumValueInitializer() {
+		token := p.lastConsumed
+		message := fmt.Sprintf("Illegal value: %s at %s. An enum value may "+
+			"only be initialized by an integer or another enum value.", token,
+			token.LongLocationString())
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return nil
+	}
+	return valueSpec
+}
+
+func (p *Parser) parseValue(assigneeType mojom.Type) mojom.ValueSpec {
+	if !p.OK() {
+		return nil
+	}
+	p.pushChildNode("parseValue")
+	defer p.popNode()
+
+	nextToken := p.peekNextToken("I was parsing a value.")
+	if nextToken.Kind == lexer.NAME {
+		return p.readValueReference(assigneeType)
+	}
+	concreteValue := p.parseLiteral()
+	if !p.OK() {
+		return nil
+	}
+	return mojom.NewLiteralValue(assigneeType, concreteValue)
 }
 
 // STRUCT_FIELD -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
@@ -843,6 +867,12 @@ func (p *Parser) parseType() mojom.Type {
 	return p.readType()
 }
 
+// LITERAL              -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
+// BOOL_LITERAL         -> true | false
+// NUMBER_LITERAL       -> [plus | minus] POS_NUM_LITERAL
+// POS_NUM_LITERAL      -> POS_INT_LITERAL | POS_FLOAT_LITERAL
+// POS_INT_LITERAL      -> int_const_dec | int_const_hex
+// POS_FLOAT_LITERAL    -> float_const
 func (p *Parser) parseLiteral() mojom.ConcreteValue {
 	if !p.OK() {
 		return mojom.ConcreteValue{}
@@ -860,12 +890,12 @@ func (p *Parser) parseLiteral() mojom.ConcreteValue {
 	case lexer.FALSE:
 		p.consumeNextToken()
 		return mojom.MakeBoolConcreteValue(true)
-	case lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
-		value, _ := p.readIntegerLiteral()
-		return mojom.MakeInt64ConcreteValue(value)
+	case lexer.PLUS, lexer.MINUS, lexer.FLOAT_CONST, lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
+		return p.parseNumberLiteral()
+
 	default:
 		message := fmt.Sprintf("Unexpected token %s at %s. "+
-			"Expecting a string, integer or boolean literal.",
+			"Expecting a string, numeric or boolean literal.",
 			nextToken, nextToken.LongLocationString())
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
 		return mojom.ConcreteValue{}
@@ -889,6 +919,107 @@ func (p *Parser) parseStringLiteral() (literal string) {
 			"text was not delimited by quotation marks: '%s'.", text))
 	}
 	return text[1 : length-1]
+}
+
+func (p *Parser) parseNumberLiteral() mojom.ConcreteValue {
+	if !p.OK() {
+		return mojom.ConcreteValue{}
+	}
+	p.pushChildNode("numberLiteral")
+	defer p.popNode()
+
+	initialMinus := p.tryMatch(lexer.MINUS)
+	initialPlus := p.tryMatch(lexer.PLUS)
+	if initialMinus && initialPlus {
+		message := fmt.Sprintf("Unexpected token %s at %s. "+
+			"Expecting a number.", p.lastConsumed,
+			p.lastConsumed.LongLocationString())
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return mojom.ConcreteValue{}
+	}
+
+	nextToken := p.peekNextToken("I was parsing a numberliteral.")
+	switch nextToken.Kind {
+	case lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
+		value, _ := p.readPositiveIntegerLiteral(initialMinus)
+		return mojom.MakeInt64ConcreteValue(value)
+	case lexer.FLOAT_CONST:
+		value, _ := p.readPositiveFloatLiteral(initialMinus)
+		return mojom.MakeDoubleConcreteValue(value)
+
+	default:
+		message := fmt.Sprintf("Unexpected token %s at %s. "+
+			"Expecting a number",
+			nextToken, nextToken.LongLocationString())
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return mojom.ConcreteValue{}
+	}
+}
+
+func (p *Parser) readPositiveIntegerLiteral(initialMinus bool) (int64, bool) {
+	nextToken := p.peekNextToken("I was parsing an integer literal.")
+	p.consumeNextToken()
+	base := 10
+	intText := p.lastConsumed.Text
+	if initialMinus {
+		intText = "-" + intText
+	}
+	switch nextToken.Kind {
+	case lexer.INT_CONST_DEC:
+	case lexer.INT_CONST_HEX:
+		if len(intText) < 3 {
+			message := fmt.Sprintf("Invalid hex integer literal"+
+				" '%s' at %s.", intText, nextToken.LongLocationString())
+			p.err = parserError{E_INTEGER_PARSE_ERROR, message}
+			return 0, false
+		}
+		intText = intText[2:]
+		base = 16
+
+	default:
+		panic("readPositiveIntegerLiteral() should only be invoked when " +
+			"the next token is an integer literal.")
+	}
+
+	intVal, err := strconv.ParseInt(intText, base, 64)
+	if err == nil {
+		return intVal, true
+	}
+	message := "parseIntegerLiteral error."
+	switch err.(*strconv.NumError).Err {
+	case strconv.ErrRange:
+		message = fmt.Sprintf("Integer literal value out of range: "+
+			"%s at %s.", intText, nextToken.LongLocationString())
+	case strconv.ErrSyntax:
+		panic(fmt.Sprintf("Lexer allowed unparsable integer literal: %s. "+
+			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
+	}
+	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
+	return 0, false
+}
+
+func (p *Parser) readPositiveFloatLiteral(initialMinus bool) (float64, bool) {
+	nextToken := p.peekNextToken("I was parsing a float literal.")
+	p.match(lexer.FLOAT_CONST)
+	floatText := p.lastConsumed.Text
+	if initialMinus {
+		floatText = "-" + floatText
+	}
+	floatVal, err := strconv.ParseFloat(floatText, 64)
+	if err == nil {
+		return floatVal, true
+	}
+	var message string
+	switch err.(*strconv.NumError).Err {
+	case strconv.ErrRange:
+		message = fmt.Sprintf("Float literal value out of range: "+
+			"%s at %s.", floatText, nextToken.LongLocationString())
+	case strconv.ErrSyntax:
+		panic(fmt.Sprintf("Lexer allowed unparsable float literal: %s. "+
+			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
+	}
+	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
+	return 0, false
 }
 
 func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
@@ -1027,45 +1158,6 @@ func (p *Parser) readText(kind lexer.TokenKind) (text string) {
 		return
 	}
 	return p.lastConsumed.Text
-}
-
-func (p *Parser) readIntegerLiteral() (int64, bool) {
-	nextToken := p.peekNextToken("I was parsing an integer literal.")
-	p.consumeNextToken()
-	base := 10
-	intText := p.lastConsumed.Text
-	switch nextToken.Kind {
-	case lexer.INT_CONST_DEC:
-	case lexer.INT_CONST_HEX:
-		if len(intText) < 3 {
-			message := fmt.Sprintf("Invalid hex integer literal"+
-				" '%s' at %s.", intText, nextToken.LongLocationString())
-			p.err = parserError{E_INTEGER_PARSE_ERROR, message}
-			return 0, false
-		}
-		intText = intText[2:]
-		base = 16
-
-	default:
-		panic("readIntegerLiteral() should only be invoked when the next " +
-			"token an integer literal.")
-	}
-
-	intVal, err := strconv.ParseInt(intText, base, 64)
-	if err == nil {
-		return intVal, true
-	}
-	message := "readIntegerLiteral error."
-	switch err.(*strconv.NumError).Err {
-	case strconv.ErrRange:
-		message = fmt.Sprintf("Integer literal value out of range: "+
-			"%s at %s.", intText, nextToken.LongLocationString())
-	case strconv.ErrSyntax:
-		panic(fmt.Sprintf("Lexer allowed unparsable integer literal: %s. "+
-			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
-	}
-	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
-	return 0, false
 }
 
 ///////////////// Methods for parsing typess ////////

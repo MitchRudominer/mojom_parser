@@ -26,6 +26,7 @@ const (
 type Type interface {
 	Kind() TypeKind
 	AllowedAsMapKey() bool
+	AllowedAsEnumValueInitializer() bool
 	Nullable() bool
 	Identical(other Type) bool
 	String() string
@@ -112,6 +113,13 @@ func (SimpleType) AllowedAsMapKey() bool {
 	return true
 }
 
+func (t SimpleType) AllowedAsEnumValueInitializer() bool {
+	if t == BOOL || t == DOUBLE || t == FLOAT {
+		return false
+	}
+	return true
+}
+
 func (SimpleType) Nullable() bool {
 	return false
 }
@@ -168,6 +176,10 @@ func (StringType) AllowedAsMapKey() bool {
 	return true
 }
 
+func (StringType) AllowedAsEnumValueInitializer() bool {
+	return false
+}
+
 func (s StringType) Nullable() bool {
 	return s.nullable
 }
@@ -201,6 +213,10 @@ func (ArrayType) Kind() TypeKind {
 }
 
 func (ArrayType) AllowedAsMapKey() bool {
+	return false
+}
+
+func (ArrayType) AllowedAsEnumValueInitializer() bool {
 	return false
 }
 
@@ -247,6 +263,10 @@ func (MapType) Kind() TypeKind {
 }
 
 func (MapType) AllowedAsMapKey() bool {
+	return false
+}
+
+func (MapType) AllowedAsEnumValueInitializer() bool {
 	return false
 }
 
@@ -301,6 +321,10 @@ func (HandleType) Kind() TypeKind {
 }
 
 func (HandleType) AllowedAsMapKey() bool {
+	return false
+}
+
+func (HandleType) AllowedAsEnumValueInitializer() bool {
 	return false
 }
 
@@ -372,8 +396,15 @@ func (TypeReference) Kind() TypeKind {
 	return TYPE_REFERENCE
 }
 
-func (TypeReference) AllowedAsMapKey() bool {
+func (t TypeReference) AllowedAsMapKey() bool {
 	return false
+}
+
+func (t TypeReference) AllowedAsEnumValueInitializer() bool {
+	if t.resolvedType == nil {
+		return true
+	}
+	return t.resolvedType.Kind() == ENUM_TYPE
 }
 
 func (t TypeReference) Nullable() bool {
@@ -449,10 +480,6 @@ type ValueSpecBase struct {
 	resolvedValue *ConcreteValue
 }
 
-func (v *ValueSpecBase) LongString() string {
-	return "TODO"
-}
-
 func (v *ValueSpecBase) ResolvedValue() *ConcreteValue {
 	return v.resolvedValue
 }
@@ -462,12 +489,14 @@ type LiteralValue struct {
 	ValueSpecBase
 }
 
-func NewIntegerLiteralValue(assigneeType Type, intVal int64) *LiteralValue {
-	int64Type := BuiltInTypeMap["int64"]
+func NewLiteralValue(assigneeType Type, concreteValue ConcreteValue) *LiteralValue {
+	if concreteValue.valueType == nil {
+		return nil
+	}
 	literalValue := new(LiteralValue)
 	literalValue.assigneeType = assigneeType
-	literalValue.valueType = int64Type
-	literalValue.resolvedValue = &ConcreteValue{valueType: int64Type, value: intVal}
+	literalValue.valueType = concreteValue.Type()
+	literalValue.resolvedValue = &concreteValue
 	return literalValue
 }
 
@@ -499,6 +528,11 @@ type ValueReference struct {
 	// In case the identifier resolves to the name of a constant, this is
 	// a pointer to the declaration of that constant.
 	resolvedConstant *UserDefinedConstant
+}
+
+func (v *ValueReference) LongString() string {
+	return fmt.Sprintf("%s %s:%s. (In %s.)", v.identifier,
+		v.scope.file.FileName, v.token.ShortLocationString(), v.scope)
 }
 
 func NewValueReference(assigneeType Type, identifier string, scope *Scope,
@@ -551,8 +585,16 @@ func (cv ConcreteValue) String() string {
 	return fmt.Sprintf("%v", cv.value)
 }
 
+func (cv ConcreteValue) Type() Type {
+	return cv.valueType
+}
+
 func makeBuiltinConcreteValue(typeName string, value interface{}) ConcreteValue {
-	return ConcreteValue{BuiltInTypeMap[typeName], value}
+	valType := BuiltInTypeMap[typeName]
+	if valType == nil {
+		panic(fmt.Sprintf("No such builtin type %s", typeName))
+	}
+	return ConcreteValue{valType, value}
 }
 
 func MakeStringConcreteValue(text string) ConcreteValue {
@@ -565,6 +607,10 @@ func MakeBoolConcreteValue(value bool) ConcreteValue {
 
 func MakeInt64ConcreteValue(value int64) ConcreteValue {
 	return makeBuiltinConcreteValue("int64", value)
+}
+
+func MakeDoubleConcreteValue(value float64) ConcreteValue {
+	return makeBuiltinConcreteValue("double", value)
 }
 
 func (cv ConcreteValue) isSimpleType(simpleType SimpleType) bool {
