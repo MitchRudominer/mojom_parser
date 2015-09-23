@@ -197,19 +197,23 @@ type StructField struct {
 	VariableDeclarationData
 
 	fieldType    Type
-	defaultValue *ValueSpec
+	defaultValue ValueSpec
 	offset       int32
 }
 
 func BuildStructField(fieldType Type, name string,
-	ordinal int, attributes *Attributes, defaultValue *ValueSpec) (field StructField) {
+	ordinal int, attributes *Attributes, defaultValue ValueSpec) (field StructField) {
 	field = StructField{fieldType: fieldType, defaultValue: defaultValue}
 	field.InitVariableDeclarationData(name, attributes, ordinal)
 	return
 }
 
 func (f StructField) String() string {
-	return fmt.Sprintf("%s %s", f.fieldType, f.SimpleName)
+	defaultValueString := ""
+	if f.defaultValue != nil {
+		defaultValueString = fmt.Sprintf(" = %s", f.defaultValue)
+	}
+	return fmt.Sprintf("%s %s%s", f.fieldType, f.simpleName, defaultValueString)
 }
 
 // TODO(rudominer) Do something with this.

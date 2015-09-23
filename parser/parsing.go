@@ -63,18 +63,21 @@ import (
 // ENUM_DECL            -> enum name lbrace ENUM_BODY rbrace semi
 // ENUM_BODY            -> [ ENUN_VALUE {, ENUM_VALUE} [,] ]
 // ENUM_VALUE           -> [ATTRIBUTES] name [equals ENUM_VAL_INITIALIZER]
-// ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | INT_LITERAL
-// ENUM_VAL_IDENTIFIER  -> IDENTIFIER {{that resolves to the name of an enum value}}
+// ENUM_VAL_INITIALIZER -> VALUE_SPEC {{of integer or enum value type}}
 
-// DEFAULT_VALUE        -> CONSTANT_VALUE | ENUM_VALUE_IDENTIFIER | default
+// DEFAULT_VALUE        -> VALUE_SPEC | default
 
-// LITERAL              -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
+// VALUE_SPEC           -> VALUE_REFERENCE | LITERAL_VALUE
+// VALUE_REFERENCE      -> IDENTIFIER {{that resolves to an enum value or constant}}
+// LITERAL_VALUE        -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
 // BOOL_LITERAL         -> true | false
 // NUMBER_LITERAL       -> [plus | minus] POS_NUM_LITERAL
 // NUMBER_LITERAL       -> FLOAT_SPECIAL_IDENTIFIER
 // POS_NUM_LITERAL      -> POS_INT_LITERAL | POS_FLOAT_LITERAL
 // POS_INT_LITERAL      -> int_const_dec | int_const_hex
 // POS_FLOAT_LITERAL    -> float_const
+
+// IDENTIFIER           -> name {dot name}
 
 ////////////////////////////////////////////////////////////////////////////
 // parseX() methods follow.
@@ -227,7 +230,7 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 
 	nextToken := p.lastConsumed
 	for nextToken.Kind != lexer.RBRACKET {
-		key := p.parseName()
+		key := p.readName()
 		if !p.OK() {
 			return
 		}
@@ -237,7 +240,7 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 
 		var value mojom.ConcreteValue
 		if p.peekNextToken("Expecting to find an attribute value.").Kind == lexer.NAME {
-			text := p.parseName()
+			text := p.readName()
 			value = mojom.MakeStringConcreteValue(text)
 		} else {
 			value = p.parseLiteral()
@@ -315,7 +318,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 		p.pushChildNode("importStmnt")
 		p.consumeNextToken() // consume the IMPORT token.
 
-		fileName := p.parseStringLiteral()
+		fileName := p.readStringLiteral()
 		if !p.OK() {
 			return
 		}
@@ -360,7 +363,7 @@ func (p *Parser) parseInterfaceDecl(attributes *mojom.Attributes) (mojomInterfac
 		return
 	}
 
-	simpleName := p.parseName()
+	simpleName := p.readName()
 	if !p.OK() {
 		return
 	}
@@ -453,7 +456,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 	p.pushChildNode("methodDecl")
 	defer p.popNode()
 
-	methodName := p.parseName()
+	methodName := p.readName()
 	if !p.OK() {
 		return nil
 	}
@@ -521,7 +524,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 		if !p.OK() {
 			return
 		}
-		name := p.parseName()
+		name := p.readName()
 		ordinalValue := p.parseOrdinal()
 		if !p.OK() {
 			return
@@ -558,7 +561,7 @@ func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *moj
 		return
 	}
 
-	simpleName := p.parseName()
+	simpleName := p.readName()
 	if !p.OK() {
 		return
 	}
@@ -648,13 +651,18 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 	defer p.popNode()
 
 	fieldType := p.parseType()
-	fieldName := p.parseName()
+	fieldName := p.readName()
 	ordinalValue := p.parseOrdinal()
+	var defaultValue mojom.ValueSpec
+	if p.tryMatch(lexer.EQUALS) {
+		// TODO(rudominer) Special handling of the identifier "default".
+		defaultValue = p.parseValue(fieldType)
+	}
 	if !p.matchSemicolon() {
 		return
 	}
 
-	structField = mojom.BuildStructField(fieldType, fieldName, ordinalValue, attributes, nil)
+	structField = mojom.BuildStructField(fieldType, fieldName, ordinalValue, attributes, defaultValue)
 
 	return
 }
@@ -679,7 +687,7 @@ func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomE
 		return
 	}
 
-	simpleName := p.parseName()
+	simpleName := p.readName()
 	if !p.OK() {
 		return
 	}
@@ -735,7 +743,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 				return false
 			}
 			firstValue = false
-			name := p.parseName()
+			name := p.readName()
 			nameToken := p.lastConsumed
 			var valueSpec mojom.ValueSpec
 			if p.tryMatch(lexer.EQUALS) {
@@ -752,7 +760,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 			}
 			break
 		case lexer.COMMA:
-
+			break
 		default:
 			message := fmt.Sprintf("Unexpected token within enum body at %s: %s. "+
 				"Expecting either another enum value or }.",
@@ -768,8 +776,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 	return p.OK()
 }
 
-// ENUM_VAL_INITIALIZER -> ENUM_VAL_IDENTIFIER | INT_LITERAL
-// ENUM_VAL_IDENTIFIER  -> IDENTIFIER {{that resolves to the name of an enum value}}
+// ENUM_VAL_INITIALIZER -> VALUE_SPEC {{of integer or enum value type}}
 func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.ValueSpec {
 	if !p.OK() {
 		return nil
@@ -793,6 +800,15 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 	return valueSpec
 }
 
+func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.UserDefinedConstant, nameToken lexer.Token) {
+	if !p.OK() {
+		return
+	}
+	// TODO
+	return
+}
+
+// VALUE_SPEC -> VALUE_REFERENCE || LITERAL_VALUE
 func (p *Parser) parseValue(assigneeType mojom.Type) mojom.ValueSpec {
 	if !p.OK() {
 		return nil
@@ -805,74 +821,14 @@ func (p *Parser) parseValue(assigneeType mojom.Type) mojom.ValueSpec {
 		return p.readValueReference(assigneeType)
 	}
 	concreteValue := p.parseLiteral()
-	if !p.OK() {
+	if !p.OK() || concreteValue.Type() == nil {
 		return nil
 	}
 	return mojom.NewLiteralValue(assigneeType, concreteValue)
 }
 
-// STRUCT_FIELD -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
-func (p *Parser) parseEnumValue(attributes *mojom.Attributes) (structField mojom.StructField) {
-	if !p.OK() {
-		return
-	}
-	p.pushChildNode("structField")
-	defer p.popNode()
-
-	fieldType := p.parseType()
-	fieldName := p.parseName()
-	ordinalValue := p.parseOrdinal()
-	if !p.matchSemicolon() {
-		return
-	}
-
-	structField = mojom.BuildStructField(fieldType, fieldName, ordinalValue, attributes, nil)
-
-	return
-}
-
-func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.UserDefinedConstant, nameToken lexer.Token) {
-	if !p.OK() {
-		return
-	}
-	// TODO
-	return
-}
-
-func (p *Parser) parseOrdinal() (ordinalValue int) {
-	if !p.OK() {
-		return
-	}
-
-	ordinalValue = -1
-	if p.tryMatch(lexer.ORDINAL) {
-		x, err := strconv.Atoi(p.lastConsumed.Text[1:])
-		if err != nil || x < 0 {
-			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
-		}
-		ordinalValue = x
-		p.pushChildNode("structField")
-		p.popNode()
-	}
-	return
-}
-
-func (p *Parser) parseType() mojom.Type {
-	if !p.OK() {
-		return nil
-	}
-	p.pushChildNode("type")
-	defer p.popNode()
-
-	return p.readType()
-}
-
-// LITERAL              -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
-// BOOL_LITERAL         -> true | false
-// NUMBER_LITERAL       -> [plus | minus] POS_NUM_LITERAL
-// POS_NUM_LITERAL      -> POS_INT_LITERAL | POS_FLOAT_LITERAL
-// POS_INT_LITERAL      -> int_const_dec | int_const_hex
-// POS_FLOAT_LITERAL    -> float_const
+// LITERAL        -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
+// BOOL_LITERAL   -> true | false
 func (p *Parser) parseLiteral() mojom.ConcreteValue {
 	if !p.OK() {
 		return mojom.ConcreteValue{}
@@ -883,7 +839,7 @@ func (p *Parser) parseLiteral() mojom.ConcreteValue {
 	nextToken := p.peekNextToken("I was parsing a literal.")
 	switch nextToken.Kind {
 	case lexer.STRING_LITERAL:
-		return mojom.MakeStringConcreteValue(p.parseStringLiteral())
+		return mojom.MakeStringConcreteValue(p.readStringLiteral())
 	case lexer.TRUE:
 		p.consumeNextToken()
 		return mojom.MakeBoolConcreteValue(true)
@@ -902,25 +858,8 @@ func (p *Parser) parseLiteral() mojom.ConcreteValue {
 	}
 }
 
-func (p *Parser) parseStringLiteral() (literal string) {
-	if !p.OK() {
-		return
-	}
-	p.pushChildNode("stringLiteral")
-	defer p.popNode()
-
-	text := p.readText(lexer.STRING_LITERAL)
-	if !p.OK() {
-		return
-	}
-	length := len(text)
-	if (length < 2) || (text[0] != '"') || (text[length-1] != '"') {
-		panic(fmt.Sprintf("Lexer returned a string literal token whose "+
-			"text was not delimited by quotation marks: '%s'.", text))
-	}
-	return text[1 : length-1]
-}
-
+// NUMBER_LITERAL       -> [plus | minus] POS_NUM_LITERAL
+// POS_NUM_LITERAL      -> POS_INT_LITERAL | POS_FLOAT_LITERAL
 func (p *Parser) parseNumberLiteral() mojom.ConcreteValue {
 	if !p.OK() {
 		return mojom.ConcreteValue{}
@@ -956,72 +895,7 @@ func (p *Parser) parseNumberLiteral() mojom.ConcreteValue {
 	}
 }
 
-func (p *Parser) readPositiveIntegerLiteral(initialMinus bool) (int64, bool) {
-	nextToken := p.peekNextToken("I was parsing an integer literal.")
-	p.consumeNextToken()
-	base := 10
-	intText := p.lastConsumed.Text
-	if initialMinus {
-		intText = "-" + intText
-	}
-	switch nextToken.Kind {
-	case lexer.INT_CONST_DEC:
-	case lexer.INT_CONST_HEX:
-		if len(intText) < 3 {
-			message := fmt.Sprintf("Invalid hex integer literal"+
-				" '%s' at %s.", intText, nextToken.LongLocationString())
-			p.err = parserError{E_INTEGER_PARSE_ERROR, message}
-			return 0, false
-		}
-		intText = intText[2:]
-		base = 16
-
-	default:
-		panic("readPositiveIntegerLiteral() should only be invoked when " +
-			"the next token is an integer literal.")
-	}
-
-	intVal, err := strconv.ParseInt(intText, base, 64)
-	if err == nil {
-		return intVal, true
-	}
-	message := "parseIntegerLiteral error."
-	switch err.(*strconv.NumError).Err {
-	case strconv.ErrRange:
-		message = fmt.Sprintf("Integer literal value out of range: "+
-			"%s at %s.", intText, nextToken.LongLocationString())
-	case strconv.ErrSyntax:
-		panic(fmt.Sprintf("Lexer allowed unparsable integer literal: %s. "+
-			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
-	}
-	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
-	return 0, false
-}
-
-func (p *Parser) readPositiveFloatLiteral(initialMinus bool) (float64, bool) {
-	nextToken := p.peekNextToken("I was parsing a float literal.")
-	p.match(lexer.FLOAT_CONST)
-	floatText := p.lastConsumed.Text
-	if initialMinus {
-		floatText = "-" + floatText
-	}
-	floatVal, err := strconv.ParseFloat(floatText, 64)
-	if err == nil {
-		return floatVal, true
-	}
-	var message string
-	switch err.(*strconv.NumError).Err {
-	case strconv.ErrRange:
-		message = fmt.Sprintf("Float literal value out of range: "+
-			"%s at %s.", floatText, nextToken.LongLocationString())
-	case strconv.ErrSyntax:
-		panic(fmt.Sprintf("Lexer allowed unparsable float literal: %s. "+
-			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
-	}
-	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
-	return 0, false
-}
-
+// IDENTIFIER   -> name {dot name}
 func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 	if !p.OK() {
 		return
@@ -1050,117 +924,35 @@ func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 	return
 }
 
-func (p *Parser) parseName() (name string) {
+func (p *Parser) parseType() mojom.Type {
 	if !p.OK() {
-		return
+		return nil
 	}
-	name = p.readText(lexer.NAME)
-	p.pushChildNode("name")
-	p.popNode()
-	return
+	p.pushChildNode("type")
+	defer p.popNode()
+
+	return p.readType()
 }
 
-///////////////// Parsing Helper Functions ////////
-
-// Returns the next available token in the stream without advancing the
-// stream cursor. In case the stream cursor is already past the end
-// the returned Token will be the EOF token. In this case the global
-// error state will be set to E_EOF error code with the message
-// "Unexpected end-of-file " concatenated with |eofMessage|. In case of
-// any other type of error the returned token is unspecified and the
-// global error state will be set with more details.
-func (p *Parser) peekNextToken(eofMessage string) (nextToken lexer.Token) {
-	nextToken = p.inputStream.PeekNext()
-	if nextToken.EOF() {
-		errorMessage := "Unexpected end-of-file. " + eofMessage
-		p.err = parserError{E_EOF, errorMessage}
-	}
-	p.lastSeen = nextToken
-	return
-}
-
-// This method is similar to peekNextToken except that in the case of EOF
-// it does not set the global error state but rather returns |eof| = |true|.
-// This method is useful when EOF is an allowed state and you want
-// to know what the extraneous token is in case it is not EOF.
-func (p *Parser) checkEOF() (eof bool) {
-	p.lastSeen = p.inputStream.PeekNext()
-	eof = p.lastSeen.EOF()
-	return
-}
-
-// Sets p.lastConsumed to the value of the next available token in the
-// stream and then advances the stream cursor. If the cursor is already
-// past the end of the stream then it sets p.lastConsumed to the EOF
-// token.
-func (p *Parser) consumeNextToken() {
-	p.lastConsumed = p.inputStream.PeekNext()
-	p.inputStream.ConsumeNext()
-}
-
-func (p *Parser) match(expectedKind lexer.TokenKind) bool {
-	if !p.OK() {
-		return false
-	}
-	message := fmt.Sprintf("I was expecting to find %s next.", expectedKind)
-	nextToken := p.peekNextToken(message)
-	if !p.OK() {
-		return false
-	}
-	if nextToken.Kind != expectedKind {
-		message = fmt.Sprintf("Unexpected token at %s: %s. Expecting %s.",
-			nextToken.LongLocationString(), nextToken, expectedKind)
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
-		return false
-	}
-	p.consumeNextToken()
-	return true
-}
-
-func (p *Parser) tryMatch(expectedKind lexer.TokenKind) bool {
-	if p.checkEOF() {
-		return false
-	}
-	if !p.OK() {
-		return false
-	}
-	nextToken := p.peekNextToken("")
-	if nextToken.Kind != expectedKind {
-		return false
-	}
-	p.consumeNextToken()
-	return true
-}
-
-func (p *Parser) matchSemicolonToken(previousToken lexer.Token) bool {
-	if !p.OK() {
-		return false
-	}
-	if p.match(lexer.SEMI) {
-		return true
-	}
-	message := fmt.Sprintf("Missing semicolon after %s at %s.",
-		previousToken, previousToken.LongLocationString())
-	p.err = parserError{E_UNEXPECTED_TOKEN, message}
-	return false
-}
-
-func (p *Parser) matchSemicolon() bool {
-	return p.matchSemicolonToken(p.lastConsumed)
-}
-
-func (p *Parser) readText(kind lexer.TokenKind) (text string) {
+func (p *Parser) parseOrdinal() (ordinalValue int) {
 	if !p.OK() {
 		return
 	}
 
-	if !p.match(kind) {
-		return
+	ordinalValue = -1
+	if p.tryMatch(lexer.ORDINAL) {
+		x, err := strconv.Atoi(p.lastConsumed.Text[1:])
+		if err != nil || x < 0 {
+			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
+		}
+		ordinalValue = x
+		p.pushChildNode("structField")
+		p.popNode()
 	}
-	return p.lastConsumed.Text
+	return
 }
 
-///////////////// Methods for parsing typess ////////
+///////////////// Methods for parsing types and values ////////
 func (p *Parser) readType() mojom.Type {
 	if !p.OK() {
 		return nil
@@ -1272,6 +1064,7 @@ func (p *Parser) readTypeReference() mojom.Type {
 	return typeReference
 }
 
+// VALUE_REFERENCE -> IDENTIFIER {{that resolves to an enum value or constant}}
 func (p *Parser) readValueReference(assigneeType mojom.Type) mojom.ValueSpec {
 	if !p.OK() {
 		return nil
@@ -1282,8 +1075,203 @@ func (p *Parser) readValueReference(assigneeType mojom.Type) mojom.ValueSpec {
 	}
 	valueReference := mojom.NewValueReference(assigneeType, identifier,
 		p.currentScope, identifierToken)
+	// TODO(rudominer) Special handling for certain built-in value identifiers
+	// including: default, float.INFINITY, etc.
 	p.mojomDescriptor.RegisterUnresolvedValueReference(valueReference)
 	return valueReference
+}
+
+// POS_INT_LITERAL -> int_const_dec | int_const_hex
+func (p *Parser) readPositiveIntegerLiteral(initialMinus bool) (int64, bool) {
+	nextToken := p.peekNextToken("I was parsing an integer literal.")
+	p.consumeNextToken()
+	base := 10
+	intText := p.lastConsumed.Text
+	if initialMinus {
+		intText = "-" + intText
+	}
+	switch nextToken.Kind {
+	case lexer.INT_CONST_DEC:
+	case lexer.INT_CONST_HEX:
+		if len(intText) < 3 {
+			message := fmt.Sprintf("Invalid hex integer literal"+
+				" '%s' at %s.", intText, nextToken.LongLocationString())
+			p.err = parserError{E_INTEGER_PARSE_ERROR, message}
+			return 0, false
+		}
+		intText = intText[2:]
+		base = 16
+
+	default:
+		panic("readPositiveIntegerLiteral() should only be invoked when " +
+			"the next token is an integer literal.")
+	}
+
+	intVal, err := strconv.ParseInt(intText, base, 64)
+	if err == nil {
+		return intVal, true
+	}
+	message := "parseIntegerLiteral error."
+	switch err.(*strconv.NumError).Err {
+	case strconv.ErrRange:
+		message = fmt.Sprintf("Integer literal value out of range: "+
+			"%s at %s.", intText, nextToken.LongLocationString())
+	case strconv.ErrSyntax:
+		panic(fmt.Sprintf("Lexer allowed unparsable integer literal: %s. "+
+			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
+	}
+	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
+	return 0, false
+}
+
+// POS_FLOAT_LITERAL  -> float_const
+func (p *Parser) readPositiveFloatLiteral(initialMinus bool) (float64, bool) {
+	nextToken := p.peekNextToken("I was parsing a float literal.")
+	p.match(lexer.FLOAT_CONST)
+	floatText := p.lastConsumed.Text
+	if initialMinus {
+		floatText = "-" + floatText
+	}
+	floatVal, err := strconv.ParseFloat(floatText, 64)
+	if err == nil {
+		return floatVal, true
+	}
+	var message string
+	switch err.(*strconv.NumError).Err {
+	case strconv.ErrRange:
+		message = fmt.Sprintf("Float literal value out of range: "+
+			"%s at %s.", floatText, nextToken.LongLocationString())
+	case strconv.ErrSyntax:
+		panic(fmt.Sprintf("Lexer allowed unparsable float literal: %s. "+
+			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
+	}
+	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
+	return 0, false
+}
+
+///////////////// Parsing Helper Functions ////////
+
+// Returns the next available token in the stream without advancing the
+// stream cursor. In case the stream cursor is already past the end
+// the returned Token will be the EOF token. In this case the global
+// error state will be set to E_EOF error code with the message
+// "Unexpected end-of-file " concatenated with |eofMessage|. In case of
+// any other type of error the returned token is unspecified and the
+// global error state will be set with more details.
+func (p *Parser) peekNextToken(eofMessage string) (nextToken lexer.Token) {
+	nextToken = p.inputStream.PeekNext()
+	if nextToken.EOF() {
+		errorMessage := "Unexpected end-of-file. " + eofMessage
+		p.err = parserError{E_EOF, errorMessage}
+	}
+	p.lastSeen = nextToken
+	return
+}
+
+// This method is similar to peekNextToken except that in the case of EOF
+// it does not set the global error state but rather returns |eof| = |true|.
+// This method is useful when EOF is an allowed state and you want
+// to know what the extraneous token is in case it is not EOF.
+func (p *Parser) checkEOF() (eof bool) {
+	p.lastSeen = p.inputStream.PeekNext()
+	eof = p.lastSeen.EOF()
+	return
+}
+
+// Sets p.lastConsumed to the value of the next available token in the
+// stream and then advances the stream cursor. If the cursor is already
+// past the end of the stream then it sets p.lastConsumed to the EOF
+// token.
+func (p *Parser) consumeNextToken() {
+	p.lastConsumed = p.inputStream.PeekNext()
+	p.inputStream.ConsumeNext()
+}
+
+func (p *Parser) match(expectedKind lexer.TokenKind) bool {
+	if !p.OK() {
+		return false
+	}
+	message := fmt.Sprintf("I was expecting to find %s next.", expectedKind)
+	nextToken := p.peekNextToken(message)
+	if !p.OK() {
+		return false
+	}
+	if nextToken.Kind != expectedKind {
+		message = fmt.Sprintf("Unexpected token at %s: %s. Expecting %s.",
+			nextToken.LongLocationString(), nextToken, expectedKind)
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return false
+	}
+	p.consumeNextToken()
+	return true
+}
+
+func (p *Parser) tryMatch(expectedKind lexer.TokenKind) bool {
+	if p.checkEOF() {
+		return false
+	}
+	if !p.OK() {
+		return false
+	}
+	nextToken := p.peekNextToken("")
+	if nextToken.Kind != expectedKind {
+		return false
+	}
+	p.consumeNextToken()
+	return true
+}
+
+func (p *Parser) matchSemicolonToken(previousToken lexer.Token) bool {
+	if !p.OK() {
+		return false
+	}
+	if p.match(lexer.SEMI) {
+		return true
+	}
+	message := fmt.Sprintf("Missing semicolon after %s at %s.",
+		previousToken, previousToken.LongLocationString())
+	p.err = parserError{E_UNEXPECTED_TOKEN, message}
+	return false
+}
+
+func (p *Parser) matchSemicolon() bool {
+	return p.matchSemicolonToken(p.lastConsumed)
+}
+
+func (p *Parser) readText(kind lexer.TokenKind) (text string) {
+	if !p.OK() {
+		return
+	}
+
+	if !p.match(kind) {
+		return
+	}
+	return p.lastConsumed.Text
+}
+
+func (p *Parser) readStringLiteral() (literal string) {
+	if !p.OK() {
+		return
+	}
+
+	text := p.readText(lexer.STRING_LITERAL)
+	if !p.OK() {
+		return
+	}
+	length := len(text)
+	if (length < 2) || (text[0] != '"') || (text[length-1] != '"') {
+		panic(fmt.Sprintf("Lexer returned a string literal token whose "+
+			"text was not delimited by quotation marks: '%s'.", text))
+	}
+	return text[1 : length-1]
+}
+
+func (p *Parser) readName() (name string) {
+	if !p.OK() {
+		return
+	}
+	name = p.readText(lexer.NAME)
+	return
 }
 
 ////////////////// Scope Stack /////////////////////

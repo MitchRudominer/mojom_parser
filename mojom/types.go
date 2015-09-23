@@ -489,9 +489,26 @@ type LiteralValue struct {
 	ValueSpecBase
 }
 
+func (lv LiteralValue) String() string {
+	return fmt.Sprintf("%s", lv.resolvedValue)
+}
+
 func NewLiteralValue(assigneeType Type, concreteValue ConcreteValue) *LiteralValue {
 	if concreteValue.valueType == nil {
-		return nil
+		panic("concreteValue.valueType may not be nil")
+	}
+	switch concreteValue.valueType.Kind() {
+	case SIMPLE_TYPE, STRING_TYPE:
+		break
+	default:
+		panic(fmt.Sprintf("Only simple types and string types may be "+
+			"literals not %s", concreteValue.valueType))
+	}
+	if assigneeType != concreteValue.valueType {
+		// TODO(rudominer) Handle this case: Firstly we should be checking
+		// for type compatability, not type equality. Secondly, we should
+		// return an error that the caller can use to issue a compilation
+		// error.
 	}
 	literalValue := new(LiteralValue)
 	literalValue.assigneeType = assigneeType
@@ -528,6 +545,10 @@ type ValueReference struct {
 	// In case the identifier resolves to the name of a constant, this is
 	// a pointer to the declaration of that constant.
 	resolvedConstant *UserDefinedConstant
+}
+
+func (v *ValueReference) String() string {
+	return fmt.Sprintf("%s", v.identifier)
 }
 
 func (v *ValueReference) LongString() string {
@@ -582,7 +603,12 @@ type ConcreteValue struct {
 }
 
 func (cv ConcreteValue) String() string {
-	return fmt.Sprintf("%v", cv.value)
+	switch cv.valueType.Kind() {
+	case STRING_TYPE:
+		return fmt.Sprintf("\"%v\"", cv.value)
+	default:
+		return fmt.Sprintf("%v", cv.value)
+	}
 }
 
 func (cv ConcreteValue) Type() Type {
