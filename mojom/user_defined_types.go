@@ -157,7 +157,7 @@ func (MojomStruct) Kind() UserDefinedTypeKind {
 // This should be invoked some time after all of the fields have been added
 // to the struct.
 func (s *MojomStruct) ComputeFieldOrdinals() {
-	// TODO
+	// TODO: Also check that names are unique.
 }
 
 func (m MojomStruct) String() string {
@@ -188,7 +188,7 @@ func (s MojomStruct) ParameterString() string {
 			ordinalString = fmt.Sprintf("@%d", f.declaredOrdinal)
 		}
 		str += fmt.Sprintf("%s%s %s%s", attributesString, f.fieldType,
-			f.SimpleName, ordinalString)
+			f.simpleName, ordinalString)
 	}
 	return str
 }
@@ -299,7 +299,7 @@ func (m *MojomMethod) String() string {
 	if m.responseParameters != nil {
 		responseString = fmt.Sprintf(" => (%s)", m.responseParameters.ParameterString())
 	}
-	return fmt.Sprintf("%s(%s)%s", m.SimpleName, parameterString, responseString)
+	return fmt.Sprintf("%s(%s)%s", m.simpleName, parameterString, responseString)
 }
 
 /////////////////////////////////////////////////////////////
@@ -318,6 +318,20 @@ func NewMojomUnion(simpleName string, attributes *Attributes) *MojomUnion {
 	return mojomUnion
 }
 
+// Adds a UnionField to this Union
+func (u *MojomUnion) AddField(fieldType Type, fieldName string,
+	tag int, attributes *Attributes) {
+	field := UnionField{fieldType: fieldType}
+	field.InitVariableDeclarationData(fieldName, attributes, tag)
+	u.fields = append(u.fields, field)
+}
+
+// This should be invoked some time after all of the fields have been added
+// to the union.
+func (u *MojomUnion) ComputeFieldTags() {
+	// TODO: Also check that names are unique.
+}
+
 func (MojomUnion) Kind() UserDefinedTypeKind {
 	return UNION_TYPE
 }
@@ -326,7 +340,6 @@ type UnionField struct {
 	VariableDeclarationData
 
 	fieldType Type
-	tag       uint32
 }
 
 /////////////////////////////////////////////////////////////
@@ -504,6 +517,13 @@ type UserDefinedConstant struct {
 
 	// The type must be a string, bool, float, double, or integer type.
 	valueType Type
+}
+
+func NewUserDefinedConstant(name string, declaredType Type, value ValueSpec,
+	attributes *Attributes) *UserDefinedConstant {
+	constant := new(UserDefinedConstant)
+	constant.Init(name, DECLARED_CONSTANT, constant, value, attributes)
+	return constant
 }
 
 func (constant *UserDefinedConstant) AsDeclaredConstant() *UserDefinedConstant {

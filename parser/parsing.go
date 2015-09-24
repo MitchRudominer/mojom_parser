@@ -50,32 +50,60 @@ import (
 // ATTR_INTRFC_ELEMENT  -> [ATTRIBUTES] INTRFC_ELEMENT
 // INTRFC_ELEMENT       -> METHOD_DECL | ENUM_DECL | CONSTANT_DECL
 
-// METHOD_DECL          -> name [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen] semi
+// METHOD_DECL          -> name [ordinal] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen] semi
 // PARAM_LIST           -> PARAM_DECL {, PARAM_DECL}
-// PARAM_DECL           -> [ATTRIBUTES] TYPE NAME [ORDINAL]
+// PARAM_DECL           -> [ATTRIBUTES] TYPE NAME [ordinal]
 
 // STRUCT_DECL          -> struct name lbrace STRUCT_BODY rbrace semi
 // STRUCT_BODY          -> {ATTR_STRUCT_ELEMENT}
 // ATTR_STRUCT_ELEMENT  -> [ATTRIBUTES] STRUCT_ELEMENT
 // STRUCT_ELEMENT       -> STRUCT_FIELD | ENUM_DECL | CONSTANT_DECL
-// STRUCT_FIELD         -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
+// STRUCT_FIELD         -> TYPE name [ordinal] [equals DEFAULT_VALUE] semi
+// DEFAULT_VALUE        -> APPROPRIATE_VAL_SPEC | default
+// APPROPRIATE_VAL_SPEC -> VALUE_SPEC {{that resolves to a type that is assignment compatible to the type of the assignee}}
+
+// UNION_DECL           -> union name lbrace UNION_BODY rbrace semi
+// UNION_BODY           -> {UNION_FIELD_DECL}
+// UNION_FIELD_DECL     -> [ATTRIBUTES] TYPE name [ordinal] semi
 
 // ENUM_DECL            -> enum name lbrace ENUM_BODY rbrace semi
 // ENUM_BODY            -> [ ENUN_VALUE {, ENUM_VALUE} [,] ]
 // ENUM_VALUE           -> [ATTRIBUTES] name [equals ENUM_VAL_INITIALIZER]
-// ENUM_VAL_INITIALIZER -> VALUE_SPEC {{of integer or enum value type}}
+// ENUM_VAL_INITIALIZER -> INTEGER_LITERAL | ENUM_VALUE_REF
+// ENUM_VALUE_REF       -> IDENTIFIER {{that resolves to a declared enum value}}
 
-// DEFAULT_VALUE        -> VALUE_SPEC | default
+// CONSTANT_DECL        -> const CONST_OK_TYPE name equals CONST_VALUE_SPEC semi
+// CONST_OK_TYPE        -> SIMPLE_TYPE | string
+// CONST_VALUE_SPEC     -> LITERAL_VALUE | CONST_VAL_REF
+// CONST_VALUE_REF      -> IDENTIFIER {{that resolves to a declared constant}}
 
 // VALUE_SPEC           -> VALUE_REFERENCE | LITERAL_VALUE
-// VALUE_REFERENCE      -> IDENTIFIER {{that resolves to an enum value or constant}}
+// VALUE_REFERENCE      -> CONST_VALUE_REF | ENUM_VALUE_REF
 // LITERAL_VALUE        -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
 // BOOL_LITERAL         -> true | false
 // NUMBER_LITERAL       -> [plus | minus] POS_NUM_LITERAL
 // NUMBER_LITERAL       -> FLOAT_SPECIAL_IDENTIFIER
+// INTEGER_LITERAL      -> [plus | minus] POS_INT_LITERAL
 // POS_NUM_LITERAL      -> POS_INT_LITERAL | POS_FLOAT_LITERAL
 // POS_INT_LITERAL      -> int_const_dec | int_const_hex
 // POS_FLOAT_LITERAL    -> float_const
+
+// TYPE                 -> BUILT_IN_TYPE | ARRAY_TYPE | MAP_TYPE | TYPE_REFERENCE
+// BUILT_IN_TYPE        -> SIMPLE_TYPE | STRING_TYPE | HANDLE_TYPE
+// SIMPLE_TYPE          -> bool | FLOAT_TYPE | INTEGER_TYPE
+// FLOAT_TYPE           -> float | double
+// HANDLE_TYPE          -> handle langle [HANDLE_KIND] rangle [qstn]
+// HANDLE_KIND          -> message_pipe | data_pipe_consumer | data_pipe_producer | shared_buffer
+// INTEGER_TYPE         -> int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64
+// STRING_TYPE          -> string [qstn]
+// ARRAY_TYPE           -> array langle TYPE [comma int_const_dec] rangle [qstn]
+// MAP_TYPE             -> map langle MAP_KEY_TYPE comma TYPE rangle [qstn]
+// MAP_KEY_TYPE         -> SIMPLE_TYPE | string | ENUM_TYPE
+// TYPE_REFERENCE       -> INTERFACE_TYPE | STRUCT_TYPE | UNION_TYPE | ENUM_TYPE
+// INTERFACE_TYPE       -> IDENTIFIER [amp] [qstn] {{where IDENTIFIER resolves to an interface}}
+// STRUCT_TYPE          -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to a struct}}
+// UNION_TYPE           -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to a union}}
+// ENUM_TYPE            -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to an interface}}
 
 // IDENTIFIER           -> name {dot name}
 
@@ -448,7 +476,7 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 	return p.OK()
 }
 
-// METHOD_DECL -> name [ORDINAL] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
+// METHOD_DECL -> name [ordinal] lparen [PARAM_LIST] rparen [response lparen [PARAM_LIST] rparen]semi
 func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMethod {
 	if !p.OK() {
 		return nil
@@ -461,7 +489,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 		return nil
 	}
 
-	ordinalValue := p.parseOrdinal()
+	ordinalValue := p.readOrdinal()
 
 	if !p.match(lexer.LPAREN) {
 		return nil
@@ -475,7 +503,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 	if !p.match(lexer.RPAREN) {
 		return nil
 	}
-	rParenBeforeSemicolon := p.lastConsumed
+	parenBeforeSemicolon := p.lastConsumed
 
 	// Check for a response message
 	var responseParams *mojom.MojomStruct = nil
@@ -492,10 +520,10 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 		if !p.match(lexer.RPAREN) {
 			return nil
 		}
-		rParenBeforeSemicolon = p.lastConsumed
+		parenBeforeSemicolon = p.lastConsumed
 	}
 
-	if !p.matchSemicolonToken(rParenBeforeSemicolon) {
+	if !p.matchSemicolonToken(parenBeforeSemicolon) {
 		return nil
 	}
 
@@ -504,7 +532,7 @@ func (p *Parser) parseMethodDecl(attributes *mojom.Attributes) *mojom.MojomMetho
 }
 
 // PARAM_LIST -> PARAM_DECL {, PARAM_DECL}
-// PARAM_DECL -> [ATTRIBUTES] TYPE name [ORDINAL]
+// PARAM_DECL -> [ATTRIBUTES] TYPE name [ordinal]
 //
 // Returns a MojomStruct containing the list of parameters. This may
 // be nil in case of an early error. Check Parser.OK().
@@ -525,7 +553,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 			return
 		}
 		name := p.readName()
-		ordinalValue := p.parseOrdinal()
+		ordinalValue := p.readOrdinal()
 		if !p.OK() {
 			return
 		}
@@ -545,6 +573,10 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 			p.err = parserError{E_UNEXPECTED_TOKEN, message}
 			return nil
 		}
+	}
+
+	if p.OK() {
+		paramStruct.ComputeFieldOrdinals()
 	}
 	return
 }
@@ -642,7 +674,9 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 	return p.OK()
 }
 
-// STRUCT_FIELD -> TYPE name [ORDINAL] [equals DEFAULT_VALUE] semi
+// STRUCT_FIELD         -> TYPE name [ordinal] [equals DEFAULT_VALUE] semi
+// DEFAULT_VALUE        -> APPROPRIATE_VAL_SPEC | default
+// APPROPRIATE_VAL_SPEC -> VALUE_SPEC {{that resolves to a type that is assignment compatible to the type of the assignee}}
 func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField mojom.StructField) {
 	if !p.OK() {
 		return
@@ -652,7 +686,7 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 
 	fieldType := p.parseType()
 	fieldName := p.readName()
-	ordinalValue := p.parseOrdinal()
+	ordinalValue := p.readOrdinal()
 	var defaultValue mojom.ValueSpec
 	if p.tryMatch(lexer.EQUALS) {
 		// TODO(rudominer) Special handling of the identifier "default".
@@ -667,12 +701,84 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 	return
 }
 
+// UNION_DECL    -> union name lbrace UNION_BODY rbrace semi
 func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.MojomUnion, nameToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
-	// TODO
+	p.pushChildNode("unionDecl")
+	defer p.popNode()
+
+	if !p.match(lexer.UNION) {
+		return
+	}
+
+	simpleName := p.readName()
+	if !p.OK() {
+		return
+	}
+	nameToken = p.lastConsumed
+	union = mojom.NewMojomUnion(simpleName, attributes)
+
+	if !p.match(lexer.LBRACE) {
+		return
+	}
+
+	if !p.parseUnionBody(union) {
+		return
+	}
+
+	if !p.match(lexer.RBRACE) {
+		return
+	}
+
+	if p.matchSemicolon() {
+		union.ComputeFieldTags()
+	}
+
 	return
+}
+
+// UNION_BODY         -> {UNION_FIELD_DECL}
+// UNION_FIELD_DECL   -> [ATTRIBUTES] TYPE name [ordinal] semi
+func (p *Parser) parseUnionBody(union *mojom.MojomUnion) bool {
+	if !p.OK() {
+		return p.OK()
+	}
+	p.pushChildNode("unionBody")
+	defer p.popNode()
+
+	rbraceFound := false
+	for attributes := p.parseAttributes(); !rbraceFound; attributes = p.parseAttributes() {
+		if !p.OK() {
+			return false
+		}
+		nextToken := p.peekNextToken("I was parsing a union body.")
+		switch nextToken.Kind {
+		case lexer.NAME:
+			fieldType := p.parseType()
+			fieldName := p.readName()
+			tag := p.readOrdinal()
+			if !p.matchSemicolon() {
+				return false
+			}
+			union.AddField(fieldType, fieldName, tag, attributes)
+		case lexer.RBRACE:
+			rbraceFound = true
+			if attributes != nil {
+				message := "Enum body ends with extranesous attributes."
+				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+			}
+			break
+		default:
+			message := fmt.Sprintf("Unexpected token within union body at %s: %s. "+
+				"Expecting either another union field or }.",
+				nextToken.LongLocationString(), nextToken)
+			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return false
+		}
+	}
+	return p.OK()
 }
 
 // ENUM_DECL -> enum name lbrace ENUM_BODY rbrace semi
@@ -776,7 +882,8 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 	return p.OK()
 }
 
-// ENUM_VAL_INITIALIZER -> VALUE_SPEC {{of integer or enum value type}}
+// ENUM_VAL_INITIALIZER -> INTEGER_LITERAL | ENUM_VALUE_REF
+// ENUM_VALUE_REF       -> IDENTIFIER {{that resolves to a declared enum value}}
 func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.ValueSpec {
 	if !p.OK() {
 		return nil
@@ -800,15 +907,40 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 	return valueSpec
 }
 
+// CONSTANT_DECL     -> const CONST_OK_TYPE name equals CONST_VALUE_SPEC semi
+// CONST_OK_TYPE     -> SIMPLE_TYPE | string
+// CONST_VALUE_SPEC  -> LITERAL_VALUE | CONST_VAL_REF
+// CONST_VALUE_REF   -> IDENTIFIER {{that resolves to a declared constant}}
 func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.UserDefinedConstant, nameToken lexer.Token) {
 	if !p.OK() {
 		return
 	}
-	// TODO
+
+	p.pushChildNode("constDecl")
+	defer p.popNode()
+
+	p.match(lexer.CONST)
+	declaredType := p.parseType()
+	name := p.readName()
+	if !p.OK() {
+		return
+	}
+	nameToken = p.lastConsumed
+	p.match(lexer.EQUALS)
+	value := p.parseValue(declaredType)
+	if !p.OK() {
+		return
+	}
+
+	// TODO(rudominer) Check that
+	// (1) The type of value is assignment compatible to deckaredType
+	// (2) The declared type is CONST_OK
+	constant = mojom.NewUserDefinedConstant(name, declaredType, value, attributes)
+	p.matchSemicolon()
 	return
 }
 
-// VALUE_SPEC -> VALUE_REFERENCE || LITERAL_VALUE
+// VALUE_SPEC -> VALUE_REFERENCE | LITERAL_VALUE
 func (p *Parser) parseValue(assigneeType mojom.Type) mojom.ValueSpec {
 	if !p.OK() {
 		return nil
@@ -827,8 +959,8 @@ func (p *Parser) parseValue(assigneeType mojom.Type) mojom.ValueSpec {
 	return mojom.NewLiteralValue(assigneeType, concreteValue)
 }
 
-// LITERAL        -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
-// BOOL_LITERAL   -> true | false
+//LITERAL_VALUE  -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
+// BOOL_LITERAL  -> true | false
 func (p *Parser) parseLiteral() mojom.ConcreteValue {
 	if !p.OK() {
 		return mojom.ConcreteValue{}
@@ -932,24 +1064,6 @@ func (p *Parser) parseType() mojom.Type {
 	defer p.popNode()
 
 	return p.readType()
-}
-
-func (p *Parser) parseOrdinal() (ordinalValue int) {
-	if !p.OK() {
-		return
-	}
-
-	ordinalValue = -1
-	if p.tryMatch(lexer.ORDINAL) {
-		x, err := strconv.Atoi(p.lastConsumed.Text[1:])
-		if err != nil || x < 0 {
-			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
-		}
-		ordinalValue = x
-		p.pushChildNode("structField")
-		p.popNode()
-	}
-	return
 }
 
 ///////////////// Methods for parsing types and values ////////
@@ -1271,6 +1385,23 @@ func (p *Parser) readName() (name string) {
 		return
 	}
 	name = p.readText(lexer.NAME)
+	return
+}
+
+// Returns -1 if there was no specified ordinal.
+func (p *Parser) readOrdinal() (ordinalValue int) {
+	if !p.OK() {
+		return
+	}
+
+	ordinalValue = -1
+	if p.tryMatch(lexer.ORDINAL) {
+		x, err := strconv.Atoi(p.lastConsumed.Text[1:])
+		if err != nil || x < 0 {
+			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
+		}
+		ordinalValue = x
+	}
 	return
 }
 
