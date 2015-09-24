@@ -142,3 +142,24 @@ func TestSingleLineComment(t *testing.T) {
 	ts.ConsumeNext()
 	checkEq(t, RPAREN, ts.PeekNext().Kind)
 }
+
+func TestMultiLineComment(t *testing.T) {
+	ts := Tokenize("( /* hello world/  * *\n */)")
+	checkEq(t, LPAREN, ts.PeekNext().Kind)
+	ts.ConsumeNext()
+	checkEq(t, RPAREN, ts.PeekNext().Kind)
+}
+
+func TestUnterminatedMultiLineComment(t *testing.T) {
+	ts := Tokenize("( /* hello world/  * *\n )")
+	checkEq(t, LPAREN, ts.PeekNext().Kind)
+	ts.ConsumeNext()
+	checkEq(t, ERROR_UNTERMINATED_COMMENT, ts.PeekNext().Kind)
+}
+
+func TestUnterminatedMultiLineCommentAtStar(t *testing.T) {
+	ts := Tokenize("( /* hello world/  *")
+	checkEq(t, LPAREN, ts.PeekNext().Kind)
+	ts.ConsumeNext()
+	checkEq(t, ERROR_UNTERMINATED_COMMENT, ts.PeekNext().Kind)
+}

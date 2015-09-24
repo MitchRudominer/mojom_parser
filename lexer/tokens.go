@@ -16,6 +16,7 @@ const (
 	ERROR_UNKNOWN TokenKind = iota
 	ERROR_ILLEGAL_CHAR
 	ERROR_UNTERMINATED_STRING_LITERAL
+	ERROR_UNTERMINATED_COMMENT
 	EOF // Indicates the end of a stream of tokens
 
 	// Punctuators and Separators

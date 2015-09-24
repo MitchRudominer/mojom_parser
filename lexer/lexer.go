@@ -355,16 +355,19 @@ func lexComment(l *lexer) stateFn {
 	// Consume the '/'.
 	l.Consume()
 
-	if l.Peek() != '/' {
-		l.emitToken(ERROR_ILLEGAL_CHAR)
-		return nil
+	switch l.Peek() {
+	case '/':
+		return lexSingleLineComment
+	case '*':
+		return lexMultiLineComment
 	}
 
-	return lexSingleLineComment
+	l.emitToken(ERROR_ILLEGAL_CHAR)
+	return nil
 }
 
 func lexSingleLineComment(l *lexer) stateFn {
-	// Consume the '//'
+	// Consume the '/'
 	l.Consume()
 
 	for !l.IsEos() && l.Peek() != '\n' {
@@ -373,4 +376,37 @@ func lexSingleLineComment(l *lexer) stateFn {
 
 	l.startToken()
 	return lexRoot
+}
+
+func lexMultiLineComment(l *lexer) stateFn {
+	// Consume the '*'.
+	l.Consume()
+
+	for !l.IsEos() {
+		if l.Peek() == '*' {
+			return lexPossibleEndOfComment
+		}
+		l.Consume()
+	}
+
+	l.emitToken(ERROR_UNTERMINATED_COMMENT)
+	return nil
+}
+
+func lexPossibleEndOfComment(l *lexer) stateFn {
+	// Consume the '*'
+	l.Consume()
+
+	if l.IsEos() {
+		l.emitToken(ERROR_UNTERMINATED_COMMENT)
+		return nil
+	}
+
+	if l.Peek() == '/' {
+		l.Consume()
+		l.startToken()
+		return lexRoot
+	}
+
+	return lexMultiLineComment
 }
