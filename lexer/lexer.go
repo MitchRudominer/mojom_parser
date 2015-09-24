@@ -100,6 +100,8 @@ func lexRoot(l *lexer) stateFn {
 		return lexString
 	case isSkippable(c):
 		return lexSkip
+	case isMaybeComment(c):
+		return lexComment
 	}
 
 	l.Consume()
@@ -342,5 +344,33 @@ func lexString(l *lexer) stateFn {
 
 	l.emitToken(STRING_LITERAL)
 
+	return lexRoot
+}
+
+func isMaybeComment(c rune) bool {
+	return c == '/'
+}
+
+func lexComment(l *lexer) stateFn {
+	// Consume the '/'.
+	l.Consume()
+
+	if l.Peek() != '/' {
+		l.emitToken(ERROR_ILLEGAL_CHAR)
+		return nil
+	}
+
+	return lexSingleLineComment
+}
+
+func lexSingleLineComment(l *lexer) stateFn {
+	// Consume the '//'
+	l.Consume()
+
+	for !l.IsEos() && l.Peek() != '\n' {
+		l.Consume()
+	}
+
+	l.startToken()
 	return lexRoot
 }

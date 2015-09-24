@@ -135,3 +135,10 @@ func TestUnterminatedStringLiteralEol(t *testing.T) {
 	ts := Tokenize("\"hello\n world\"")
 	checkEq(t, ERROR_UNTERMINATED_STRING_LITERAL, ts.PeekNext().Kind)
 }
+
+func TestSingleLineComment(t *testing.T) {
+	ts := Tokenize("( // some stuff\n)")
+	checkEq(t, LPAREN, ts.PeekNext().Kind)
+	ts.ConsumeNext()
+	checkEq(t, RPAREN, ts.PeekNext().Kind)
+}
