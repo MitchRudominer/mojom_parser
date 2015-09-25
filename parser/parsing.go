@@ -62,7 +62,7 @@ import (
 // STRUCT_ELEMENT       -> STRUCT_FIELD | ENUM_DECL | CONSTANT_DECL
 // STRUCT_FIELD         -> TYPE name [ordinal] [equals DEFAULT_VALUE] semi
 // DEFAULT_VALUE        -> APPROPRIATE_VAL_SPEC | default
-// APPROPRIATE_VAL_SPEC -> VALUE_SPEC {{that resolves to a type that is assignment compatible to the type of the assignee}}
+// APPROPRIATE_VAL_SPEC -> VALUE_REF {{that resolves to a type that is assignment compatible to the type of the assignee}}
 
 // UNION_DECL           -> union name lbrace UNION_BODY rbrace semi
 // UNION_BODY           -> {UNION_FIELD_DECL}
@@ -74,13 +74,13 @@ import (
 // ENUM_VAL_INITIALIZER -> INTEGER_LITERAL | ENUM_VALUE_REF
 // ENUM_VALUE_REF       -> IDENTIFIER {{that resolves to a declared enum value}}
 
-// CONSTANT_DECL        -> const CONST_OK_TYPE name equals CONST_VALUE_SPEC semi
+// CONSTANT_DECL        -> const CONST_OK_TYPE name equals CONST_VALUE_REF semi
 // CONST_OK_TYPE        -> SIMPLE_TYPE | string
-// CONST_VALUE_SPEC     -> LITERAL_VALUE | CONST_VAL_REF
+// CONST_VALUE_REF      -> LITERAL_VALUE | CONST_VAL_REF
 // CONST_VALUE_REF      -> IDENTIFIER {{that resolves to a declared constant}}
 
-// VALUE_SPEC           -> VALUE_REFERENCE | LITERAL_VALUE
-// VALUE_REFERENCE      -> CONST_VALUE_REF | ENUM_VALUE_REF
+// VALUE_REF            -> USER_VALUE_REF | LITERAL_VALUE
+// USER_VALUE_REF       -> CONST_VALUE_REF | ENUM_VALUE_REF
 // LITERAL_VALUE        -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
 // BOOL_LITERAL         -> true | false
 // NUMBER_LITERAL       -> [plus | minus] POS_NUM_LITERAL
@@ -272,7 +272,7 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 		var value mojom.ConcreteValue
 		if p.peekNextToken("Expecting to find an attribute value.").Kind == lexer.NAME {
 			text := p.readName()
-			value = mojom.MakeStringConcreteValue(text)
+			value = mojom.MakeStringLiteralValue(text)
 		} else {
 			value = p.parseLiteral()
 		}
@@ -562,7 +562,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 			return
 		}
 
-		paramStruct.AddField(mojom.BuildStructField(fieldType, name, ordinalValue, attributes, nil))
+		paramStruct.AddField(mojom.NewStructField(fieldType, name, ordinalValue, attributes, nil, nil))
 
 		nextToken = p.peekNextToken("I was parsing method parameters.")
 		switch nextToken.Kind {
@@ -681,10 +681,10 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 
 // STRUCT_FIELD         -> TYPE name [ordinal] [equals DEFAULT_VALUE] semi
 // DEFAULT_VALUE        -> APPROPRIATE_VAL_SPEC | default
-// APPROPRIATE_VAL_SPEC -> VALUE_SPEC {{that resolves to a type that is assignment compatible to the type of the assignee}}
-func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField mojom.StructField) {
+// APPROPRIATE_VAL_SPEC -> VALUE_REF {{that resolves to a type that is assignment compatible to the type of the assignee}}
+func (p *Parser) parseStructField(attributes *mojom.Attributes) *mojom.StructField {
 	if !p.OK() {
-		return
+		return nil
 	}
 	p.pushChildNode("structField")
 	defer p.popNode()
@@ -693,18 +693,18 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 	fieldName := p.readName()
 	p.attachToken()
 	ordinalValue := p.readOrdinal()
-	var defaultValue mojom.ValueSpec
+	var defaultValue mojom.ValueRef
+	var defaultValueToken lexer.Token
 	if p.tryMatch(lexer.EQUALS) {
 		// TODO(rudominer) Special handling of the identifier "default".
+		defaultValueToken = p.peekNextToken("Expecting a default value.")
 		defaultValue = p.parseValue(fieldType)
 	}
 	if !p.matchSemicolon() {
-		return
+		return nil
 	}
 
-	structField = mojom.BuildStructField(fieldType, fieldName, ordinalValue, attributes, defaultValue)
-
-	return
+	return mojom.NewStructField(fieldType, fieldName, ordinalValue, attributes, defaultValue, &defaultValueToken)
 }
 
 // UNION_DECL    -> union name lbrace UNION_BODY rbrace semi
@@ -860,7 +860,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 			name := p.readName()
 			p.attachToken()
 			nameToken := p.lastConsumed
-			var valueSpec mojom.ValueSpec
+			var valueSpec mojom.ValueRef
 			if p.tryMatch(lexer.EQUALS) {
 				valueSpec = p.parseEnumValueInitializer(mojomEnum)
 			}
@@ -896,7 +896,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 
 // ENUM_VAL_INITIALIZER -> INTEGER_LITERAL | ENUM_VALUE_REF
 // ENUM_VALUE_REF       -> IDENTIFIER {{that resolves to a declared enum value}}
-func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.ValueSpec {
+func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.ValueRef {
 	if !p.OK() {
 		return nil
 	}
@@ -908,14 +908,14 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 	// other types of value assignment, an enum value initializer is not
 	// preceded by a type reference for the assignee. Rather the type of
 	// the assignee is implicit in the scope.
-	enumType := mojom.NewResolvedTypeReference(mojoEnum.FullyQualifiedName(), mojoEnum)
+	enumType := mojom.NewResolvedUserTypeRef(mojoEnum.FullyQualifiedName(), mojoEnum)
 
 	valueSpec := p.parseValue(enumType)
 	if valueSpec == nil {
 		return nil
 	}
 	concreteValue := valueSpec.ResolvedValue()
-	if concreteValue != nil && !concreteValue.Type().AllowedAsEnumValueInitializer() {
+	if concreteValue != nil && !concreteValue.ValueType().AllowedAsEnumValueInitializer() {
 		token := p.lastConsumed
 		message := fmt.Sprintf("Illegal value: %s at %s. An enum value may "+
 			"only be initialized by an integer or another enum value.", token,
@@ -926,9 +926,9 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 	return valueSpec
 }
 
-// CONSTANT_DECL     -> const CONST_OK_TYPE name equals CONST_VALUE_SPEC semi
+// CONSTANT_DECL     -> const CONST_OK_TYPE name equals CONST_VALUE_REF semi
 // CONST_OK_TYPE     -> SIMPLE_TYPE | string
-// CONST_VALUE_SPEC  -> LITERAL_VALUE | CONST_VAL_REF
+// CONST_VALUE_REF  -> LITERAL_VALUE | CONST_VAL_REF
 // CONST_VALUE_REF   -> IDENTIFIER {{that resolves to a declared constant}}
 func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.UserDefinedConstant, nameToken lexer.Token) {
 	if !p.OK() {
@@ -959,8 +959,8 @@ func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.U
 	return
 }
 
-// VALUE_SPEC -> VALUE_REFERENCE | LITERAL_VALUE
-func (p *Parser) parseValue(assigneeType mojom.Type) mojom.ValueSpec {
+// VALUE_REF -> USER_VALUE_REF | LITERAL_VALUE
+func (p *Parser) parseValue(assigneeType mojom.TypeRef) mojom.ValueRef {
 	if !p.OK() {
 		return nil
 	}
@@ -970,21 +970,21 @@ func (p *Parser) parseValue(assigneeType mojom.Type) mojom.ValueSpec {
 	nextToken := p.peekNextToken("I was parsing a value.")
 	p.attachToken()
 	if nextToken.Kind == lexer.NAME {
-		return p.readValueReference(assigneeType)
+		return p.readUserValueRef(assigneeType)
 	}
-	concreteValue := p.parseLiteral()
+	literalValue := p.parseLiteral()
 	p.attachToken()
-	if !p.OK() || concreteValue.Type() == nil {
+	if !p.OK() || literalValue.ValueType() == nil {
 		return nil
 	}
-	return mojom.NewLiteralValue(assigneeType, concreteValue)
+	return literalValue
 }
 
 //LITERAL_VALUE  -> BOOL_LITERAL | string_literal | NUMBER_LITERAL
 // BOOL_LITERAL  -> true | false
-func (p *Parser) parseLiteral() mojom.ConcreteValue {
+func (p *Parser) parseLiteral() mojom.LiteralValue {
 	if !p.OK() {
-		return mojom.ConcreteValue{}
+		return mojom.LiteralValue{}
 	}
 	p.pushChildNode("literal")
 	defer p.popNode()
@@ -992,13 +992,13 @@ func (p *Parser) parseLiteral() mojom.ConcreteValue {
 	nextToken := p.peekNextToken("I was parsing a literal.")
 	switch nextToken.Kind {
 	case lexer.STRING_LITERAL:
-		return mojom.MakeStringConcreteValue(p.readStringLiteral())
+		return mojom.MakeStringLiteralValue(p.readStringLiteral())
 	case lexer.TRUE:
 		p.consumeNextToken()
-		return mojom.MakeBoolConcreteValue(true)
+		return mojom.MakeBoolLiteralValue(true)
 	case lexer.FALSE:
 		p.consumeNextToken()
-		return mojom.MakeBoolConcreteValue(true)
+		return mojom.MakeBoolLiteralValue(true)
 	case lexer.PLUS, lexer.MINUS, lexer.FLOAT_CONST, lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
 		return p.parseNumberLiteral()
 
@@ -1007,15 +1007,15 @@ func (p *Parser) parseLiteral() mojom.ConcreteValue {
 			"Expecting a string, numeric or boolean literal.",
 			nextToken, nextToken.LongLocationString())
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
-		return mojom.ConcreteValue{}
+		return mojom.LiteralValue{}
 	}
 }
 
 // NUMBER_LITERAL       -> [plus | minus] POS_NUM_LITERAL
 // POS_NUM_LITERAL      -> POS_INT_LITERAL | POS_FLOAT_LITERAL
-func (p *Parser) parseNumberLiteral() mojom.ConcreteValue {
+func (p *Parser) parseNumberLiteral() mojom.LiteralValue {
 	if !p.OK() {
-		return mojom.ConcreteValue{}
+		return mojom.LiteralValue{}
 	}
 	p.pushChildNode("numberLiteral")
 	defer p.popNode()
@@ -1027,24 +1027,24 @@ func (p *Parser) parseNumberLiteral() mojom.ConcreteValue {
 			"Expecting a number.", p.lastConsumed,
 			p.lastConsumed.LongLocationString())
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
-		return mojom.ConcreteValue{}
+		return mojom.LiteralValue{}
 	}
 
 	nextToken := p.peekNextToken("I was parsing a numberliteral.")
 	switch nextToken.Kind {
 	case lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
 		value, _ := p.readPositiveIntegerLiteral(initialMinus, true, 64)
-		return mojom.MakeInt64ConcreteValue(value)
+		return mojom.MakeInt64LiteralValue(value)
 	case lexer.FLOAT_CONST:
 		value, _ := p.readPositiveFloatLiteral(initialMinus)
-		return mojom.MakeDoubleConcreteValue(value)
+		return mojom.MakeDoubleLiteralValue(value)
 
 	default:
 		message := fmt.Sprintf("Unexpected token %s at %s. "+
 			"Expecting a number",
 			nextToken, nextToken.LongLocationString())
 		p.err = parserError{E_UNEXPECTED_TOKEN, message}
-		return mojom.ConcreteValue{}
+		return mojom.LiteralValue{}
 	}
 }
 
@@ -1078,7 +1078,7 @@ func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 }
 
 // TYPE -> BUILT_IN_TYPE | ARRAY_TYPE | MAP_TYPE | TYPE_REFERENCE
-func (p *Parser) parseType() mojom.Type {
+func (p *Parser) parseType() mojom.TypeRef {
 	if !p.OK() {
 		return nil
 	}
@@ -1091,7 +1091,7 @@ func (p *Parser) parseType() mojom.Type {
 ///////////////// Methods for parsing types and values ////////
 
 // TYPE -> BUILT_IN_TYPE | ARRAY_TYPE | MAP_TYPE | TYPE_REFERENCE
-func (p *Parser) readType() mojom.Type {
+func (p *Parser) readType() mojom.TypeRef {
 	if !p.OK() {
 		return nil
 	}
@@ -1117,7 +1117,7 @@ func (p *Parser) readType() mojom.Type {
 // HANDLE_KIND          -> message_pipe | data_pipe_consumer | data_pipe_producer | shared_buffer
 // INTEGER_TYPE         -> int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64
 // STRING_TYPE          -> string [qstn]
-func (p *Parser) tryReadBuiltInType() mojom.Type {
+func (p *Parser) tryReadBuiltInType() mojom.TypeRef {
 	if !p.OK() {
 		return nil
 	}
@@ -1127,8 +1127,8 @@ func (p *Parser) tryReadBuiltInType() mojom.Type {
 		return nil
 	}
 	typeName := typeNameToken.Text
-	builtInType, ok := mojom.BuiltInTypeMap[typeName]
-	if !ok {
+	builtInType := mojom.BuiltInType(typeName)
+	if builtInType == nil {
 		return nil
 	}
 	p.consumeNextToken()
@@ -1146,7 +1146,7 @@ func (p *Parser) tryReadBuiltInType() mojom.Type {
 			}
 			if p.match(lexer.RANGLE) {
 				typeName = fmt.Sprintf("%s<%s>", typeName, handleType)
-				if builtInType, ok = mojom.BuiltInTypeMap[typeName]; !ok {
+				if builtInType = mojom.BuiltInType(typeName); builtInType == nil {
 					message := fmt.Sprintf("Unrecognized type of handle at %s: %s.",
 						typeNameToken.LongLocationString(), typeName)
 					p.err = parserError{E_UNEXPECTED_TOKEN, message}
@@ -1161,7 +1161,7 @@ func (p *Parser) tryReadBuiltInType() mojom.Type {
 
 	// Check for nullable marker
 	if p.tryMatch(lexer.QSTN) {
-		if builtInType, ok = mojom.BuiltInTypeMap[typeName+"?"]; !ok {
+		if builtInType = mojom.BuiltInType(typeName + "?"); builtInType == nil {
 			message := fmt.Sprintf("The type %s? at %s is invalid because the "+
 				"type %s may not be made nullable.",
 				typeName, typeNameToken.LongLocationString(), typeName)
@@ -1174,7 +1174,7 @@ func (p *Parser) tryReadBuiltInType() mojom.Type {
 }
 
 // ARRAY_TYPE  -> array langle TYPE [comma int_const_dec] rangle [qstn]
-func (p *Parser) tryReadArrayType() mojom.Type {
+func (p *Parser) tryReadArrayType() mojom.TypeRef {
 	if !p.OK() {
 		return nil
 	}
@@ -1208,12 +1208,12 @@ func (p *Parser) tryReadArrayType() mojom.Type {
 	}
 	nullable := p.tryMatch(lexer.QSTN)
 
-	return mojom.NewArrayType(elementType, fixedSize, nullable)
+	return mojom.NewArrayTypeRef(elementType, fixedSize, nullable)
 }
 
 // MAP_TYPE      -> map langle MAP_KEY_TYPE comma TYPE rangle [qstn]
 // MAP_KEY_TYPE  -> SIMPLE_TYPE | string | ENUM_TYPE
-func (p *Parser) tryReadMapType() mojom.Type {
+func (p *Parser) tryReadMapType() mojom.TypeRef {
 	if !p.OK() {
 		return nil
 	}
@@ -1236,7 +1236,7 @@ func (p *Parser) tryReadMapType() mojom.Type {
 	}
 	nullable := p.tryMatch(lexer.QSTN)
 
-	if !keyType.AllowedAsMapKey() {
+	if !keyType.MarkUsedAsMapKey() {
 		message := fmt.Sprintf("The type %s at %s is not allowed as the key "+
 			"type of a map. Only simple types, strings and enum types may "+
 			"be map keys.",
@@ -1245,7 +1245,7 @@ func (p *Parser) tryReadMapType() mojom.Type {
 		return nil
 	}
 
-	return mojom.NewMapType(keyType, valueType, nullable)
+	return mojom.NewMapTypeRef(keyType, valueType, nullable)
 }
 
 // TYPE_REFERENCE   -> INTERFACE_TYPE | STRUCT_TYPE | UNION_TYPE | ENUM_TYPE
@@ -1253,7 +1253,7 @@ func (p *Parser) tryReadMapType() mojom.Type {
 // STRUCT_TYPE      -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to a struct}}
 // UNION_TYPE       -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to a union}}
 // ENUM_TYPE        -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to an interface}}
-func (p *Parser) readTypeReference() mojom.Type {
+func (p *Parser) readTypeReference() mojom.TypeRef {
 	if !p.OK() {
 		return nil
 	}
@@ -1269,14 +1269,14 @@ func (p *Parser) readTypeReference() mojom.Type {
 	if !p.OK() {
 		return nil
 	}
-	typeReference := mojom.NewTypeReference(identifier, nullable,
+	typeReference := mojom.NewUserTypeRef(identifier, nullable,
 		interfaceRequest, p.currentScope, identifierToken)
 	p.mojomDescriptor.RegisterUnresolvedTypeReference(typeReference)
 	return typeReference
 }
 
-// VALUE_REFERENCE -> IDENTIFIER {{that resolves to an enum value or constant}}
-func (p *Parser) readValueReference(assigneeType mojom.Type) mojom.ValueSpec {
+// USER_VALUE_REF -> IDENTIFIER {{that resolves to an enum value or constant}}
+func (p *Parser) readUserValueRef(assigneeType mojom.TypeRef) *mojom.UserValueRef {
 	if !p.OK() {
 		return nil
 	}
@@ -1284,7 +1284,7 @@ func (p *Parser) readValueReference(assigneeType mojom.Type) mojom.ValueSpec {
 	if !p.OK() {
 		return nil
 	}
-	valueReference := mojom.NewValueReference(assigneeType, identifier,
+	valueReference := mojom.NewUserValueRef(assigneeType, identifier,
 		p.currentScope, identifierToken)
 	// TODO(rudominer) Special handling for certain built-in value identifiers
 	// including: default, float.INFINITY, etc.

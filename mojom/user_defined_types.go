@@ -2,6 +2,7 @@ package mojom
 
 import (
 	"fmt"
+	"github.com/rudominer/mojom_parser/lexer"
 )
 
 // User-Defined Type Kinds
@@ -60,6 +61,10 @@ func (b *UserDefinedTypeBase) Init(simpleName string, thisType UserDefinedType,
 	b.thisType = thisType
 	b.simpleName = simpleName
 	b.attributes = attributes
+}
+
+func (b *UserDefinedTypeBase) TypeKind() TypeKind {
+	return USER_DEFINED_TYPE
 }
 
 // Generates the fully-qualified name and the type key and registers the
@@ -131,12 +136,12 @@ type MojomStruct struct {
 	UserDefinedTypeBase
 	DeclarationContainer
 
-	fields []StructField
+	fields []*StructField
 }
 
 func NewMojomStruct(simpleName string, attributes *Attributes) *MojomStruct {
 	mojomStruct := new(MojomStruct)
-	mojomStruct.fields = make([]StructField, 0)
+	mojomStruct.fields = make([]*StructField, 0)
 	mojomStruct.Init(simpleName, mojomStruct, attributes)
 	return mojomStruct
 }
@@ -146,7 +151,10 @@ func (s *MojomStruct) InitAsScope(parentScope *Scope) *Scope {
 	return s.containedDeclarations
 }
 
-func (s *MojomStruct) AddField(field StructField) {
+func (s *MojomStruct) AddField(field *StructField) {
+	if field == nil {
+		return
+	}
 	s.fields = append(s.fields, field)
 }
 
@@ -196,16 +204,31 @@ func (s MojomStruct) ParameterString() string {
 type StructField struct {
 	VariableDeclarationData
 
-	fieldType    Type
-	defaultValue ValueSpec
-	offset       int32
+	fieldType    TypeRef
+	defaultValue ValueRef
+	// We save this token because it is possible that we won't be able to
+	// validate the type safety of the assignment until after the resolution
+	// phase and at that point we want to be able to generate a useful
+	// error message.
+	defaultValueFirstToken *lexer.Token
+	offset                 int32
 }
 
-func BuildStructField(fieldType Type, name string,
-	ordinal int, attributes *Attributes, defaultValue ValueSpec) (field StructField) {
-	field = StructField{fieldType: fieldType, defaultValue: defaultValue}
+func NewStructField(fieldType TypeRef, name string,
+	ordinal int, attributes *Attributes, defaultValue ValueRef,
+	defaultValueFirstToken *lexer.Token) *StructField {
+	field := StructField{fieldType: fieldType, defaultValue: defaultValue,
+		defaultValueFirstToken: defaultValueFirstToken}
 	field.InitVariableDeclarationData(name, attributes, ordinal)
-	return
+	return &field
+}
+
+func (f *StructField) ValidateDefaultValue(descriptor *MojomDescriptor) error {
+	// TODO(rudominer) If if it is possible to validate without resolving, do
+	// so now and possibly return an error. Otherwise register this field
+	// with the given descritpor as something that needs to be validated
+	// later after resolution.
+	return nil
 }
 
 func (f StructField) String() string {
@@ -319,7 +342,7 @@ func NewMojomUnion(simpleName string, attributes *Attributes) *MojomUnion {
 }
 
 // Adds a UnionField to this Union
-func (u *MojomUnion) AddField(fieldType Type, fieldName string,
+func (u *MojomUnion) AddField(fieldType TypeRef, fieldName string,
 	tag int, attributes *Attributes) {
 	field := UnionField{fieldType: fieldType}
 	field.InitVariableDeclarationData(fieldName, attributes, tag)
@@ -339,7 +362,7 @@ func (MojomUnion) Kind() UserDefinedTypeKind {
 type UnionField struct {
 	VariableDeclarationData
 
-	fieldType Type
+	fieldType TypeRef
 }
 
 /////////////////////////////////////////////////////////////
@@ -359,6 +382,15 @@ func NewMojomEnum(simpleName string, attributes *Attributes) *MojomEnum {
 	return mojomEnum
 }
 
+// A MojoEnum is a ConcreteType
+func (MojomEnum) ConcreteTypeKind() TypeKind {
+	return USER_DEFINED_TYPE
+}
+
+func (*MojomEnum) AllowedAsEnumValueInitializer() bool {
+	return false
+}
+
 func (MojomEnum) Kind() UserDefinedTypeKind {
 	return ENUM_TYPE
 }
@@ -370,10 +402,10 @@ func (e *MojomEnum) InitAsScope(parentScope *Scope) *Scope {
 }
 
 // Adds an EnumValue to this enum
-func (e *MojomEnum) AddEnumValue(name string, valueSpec ValueSpec,
+func (e *MojomEnum) AddEnumValue(name string, valueRef ValueRef,
 	attributes *Attributes) *DuplicateNameError {
 	enumValue := new(EnumValue)
-	enumValue.Init(name, ENUM_VALUE, enumValue, valueSpec, attributes)
+	enumValue.Init(name, ENUM_VALUE, enumValue, valueRef, attributes)
 	e.values = append(e.values, enumValue)
 	enumValue.enumType = e
 	return enumValue.RegisterInScope(e.containedDeclarations)
@@ -393,10 +425,19 @@ func (e *MojomEnum) String() string {
 	return s
 }
 
+// An EnumValue is both a ValueRef and a ConcreteValue.
 type EnumValue struct {
 	UserDefinedValueBase
 
 	enumType *MojomEnum
+}
+
+// EnumValue implements ConcreteValue
+func (ev *EnumValue) ValueType() ConcreteType {
+	return ev.enumType
+}
+func (ev *EnumValue) Value() interface{} {
+	return *ev
 }
 
 func (enumValue *EnumValue) AsDeclaredConstant() *UserDefinedConstant {
@@ -455,20 +496,20 @@ type UserDefinedValueBase struct {
 	// This is the value specified in the right-hand-side of the value
 	// declaration. For an enum value it will be an integer literal. For
 	// a constant declartion it may be a literal or it may be a reference.
-	valueSpec ValueSpec
-	scope     *Scope
+	valueRef ValueRef
+	scope    *Scope
 }
 
 // This method is invoked from the constructors for the containing types:
 // NewMojomInterface, NewMojomStruct, NewMojomEnum, NewMojomUnion
 func (b *UserDefinedValueBase) Init(simpleName string,
 	kind UserDefinedValueKind, thisValue UserDefinedValue,
-	valueSpec ValueSpec, attributes *Attributes) {
+	valueRef ValueRef, attributes *Attributes) {
 	b.attributes = attributes
 	b.thisValue = thisValue
 	b.simpleName = simpleName
 	b.kind = kind
-	b.valueSpec = valueSpec
+	b.valueRef = valueRef
 }
 
 func (v *UserDefinedValueBase) RegisterInScope(scope *Scope) *DuplicateNameError {
@@ -502,8 +543,8 @@ func (b UserDefinedValueBase) String() string {
 		attributeString = fmt.Sprintf("%s", b.attributes.List)
 	}
 	concreteValueString := ""
-	if b.valueSpec != nil {
-		concreteValue := b.valueSpec.ResolvedValue()
+	if b.valueRef != nil {
+		concreteValue := b.valueRef.ResolvedValue()
 		if concreteValue != nil {
 			concreteValueString = fmt.Sprintf(" = %s", concreteValue)
 		}
@@ -535,11 +576,10 @@ func (b UserDefinedValueBase) Scope() *Scope {
 type UserDefinedConstant struct {
 	UserDefinedValueBase
 
-	// The type must be a string, bool, float, double, or integer type.
-	valueType Type
+	valueType ConcreteType
 }
 
-func NewUserDefinedConstant(name string, declaredType Type, value ValueSpec,
+func NewUserDefinedConstant(name string, declaredType TypeRef, value ValueRef,
 	attributes *Attributes) *UserDefinedConstant {
 	constant := new(UserDefinedConstant)
 	constant.Init(name, DECLARED_CONSTANT, constant, value, attributes)

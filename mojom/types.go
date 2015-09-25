@@ -3,11 +3,34 @@ package mojom
 import (
 	"fmt"
 	"github.com/rudominer/mojom_parser/lexer"
-	"strings"
 )
 
-// The different kinds of Mojom types. We divide the types into five categories:
-// simple, string, compound, handle, and user-defined.
+// This file data structures and functions used to describe Mojom types,
+// values type reference and value references. The difference between a type and
+// a type reference is indicated by the fact that, for example, there is only
+// one int32 type but a .mojom file may contain many references to that type. For
+// the built-in types like int32 this distinction is not important and the same
+// object will represent both the type and the type reference. But for a
+// user-defined type the distinction is important. The type "struct Foo" is
+// created via a mojom struct declaration and then the type is referenced in
+// other places via an identifier. We will use different objects to represent
+// the type and the (possibly mulitple) references to the type.
+//
+// This file does not contain the objects that represent user-defined types.
+// Those may be found in the file user_defined_types.go. This file does
+// contain the objects that represent built-in types and type references and
+// user-defined type references. Type resolution refers to the process of
+// mapping each user-defined type reference to its corresponding user-defined
+// type.
+//
+// The situation is similar with values. This file contains the objects that
+// represent built-in values and value references and user-defined value
+// references. The objects that represent user-defined values may also
+// be found in the file user_defined_types.go. Value resolution refers to the
+// process of mapping each user-defined value reference to its corresponding
+// user-defined value.
+
+// The different kinds of Mojom types (and type references).
 type TypeKind int
 
 const (
@@ -16,72 +39,39 @@ const (
 	ARRAY_TYPE
 	MAP_TYPE
 	HANDLE_TYPE
-	TYPE_REFERENCE
+	USER_DEFINED_TYPE
 )
 
-/////////////////////////////////////////////////////////////
-// The Type interface. All of our structs that represent types
-// implement this interface.
-/////////////////////////////////////////////////////////////
-type Type interface {
-	Kind() TypeKind
-	AllowedAsMapKey() bool
-	AllowedAsEnumValueInitializer() bool
-	Nullable() bool
-	Identical(other Type) bool
+type Stringable interface {
 	String() string
 }
 
-/////////////////////////////////////////////////////////////
-// The built-in types are defined to be those with a statically
-// defined identifier. These are the simple types, string,
-// the handle types and their nullable variants.
-/////////////////////////////////////////////////////////////
+// The literal types are the simple types plus string. These are the types
+// of literals. This interface is used to represent literal types in there
+// aspect as a type as opposed to a type reference.
+// A LiteralType is a ConcreteType.
+type LiteralType interface {
+	ConcreteType
+}
 
-var allBuiltInTypes []Type
-var BuiltInTypeMap map[string]Type
+// The ConcreteTypes are the LiteralTypes plus enum types. These are the
+// types that may be the type of a constant declaration or a default value
+// assignment. Some of these types may be used as the type of an enum
+// value initializer. This interface represents types as opposed to
+// type references.
+type ConcreteType interface {
+	Stringable
+	ConcreteTypeKind() TypeKind
+	AllowedAsEnumValueInitializer() (ok bool)
+}
 
-// Initialize allBuiltInTypes and BuiltInTypeMap
-func init() {
-	allBuiltInTypes = make([]Type, len(allSimpleTypes)+12)
-	// Add the simple types
-	for i, t := range allSimpleTypes {
-		allBuiltInTypes[i] = t
-	}
-
-	// Add the string types
-	i := len(allSimpleTypes)
-	allBuiltInTypes[i] = StringType{false}
-	i++
-	allBuiltInTypes[i] = StringType{true}
-	i++
-
-	// Add the handle types
-	allBuiltInTypes[i] = HandleType{false, H_UNSPECIFIED}
-	i++
-	allBuiltInTypes[i] = HandleType{true, H_UNSPECIFIED}
-	i++
-	allBuiltInTypes[i] = HandleType{false, H_MESSAGE_PIPE}
-	i++
-	allBuiltInTypes[i] = HandleType{true, H_MESSAGE_PIPE}
-	i++
-	allBuiltInTypes[i] = HandleType{false, H_DATA_PIPE_CONSUMER}
-	i++
-	allBuiltInTypes[i] = HandleType{true, H_DATA_PIPE_CONSUMER}
-	i++
-	allBuiltInTypes[i] = HandleType{false, H_DATA_PIPE_PRODUCER}
-	i++
-	allBuiltInTypes[i] = HandleType{true, H_DATA_PIPE_PRODUCER}
-	i++
-	allBuiltInTypes[i] = HandleType{false, H_SHARED_BUFFER}
-	i++
-	allBuiltInTypes[i] = HandleType{true, H_SHARED_BUFFER}
-
-	// Construct BuiltInTypeMap
-	BuiltInTypeMap = make(map[string]Type, len(allBuiltInTypes))
-	for _, t := range allBuiltInTypes {
-		BuiltInTypeMap[t.String()] = t
-	}
+// A TypeRef is a reference to any kind of type. An instance of TypeRef
+// represents a particular textual occurrence of a type reference.
+type TypeRef interface {
+	Stringable
+	TypeRefKind() TypeKind
+	MarkUsedAsMapKey() (ok bool)
+	MarkUsedAsConstantType() (ok bool)
 }
 
 /////////////////////////////////////////////////////////////
@@ -105,12 +95,9 @@ const (
 
 var allSimpleTypes = []SimpleType{BOOL, DOUBLE, FLOAT, INT8, INT16, INT32, INT64, UINT8, UINT16, UINT32, UINT64}
 
-func (SimpleType) Kind() TypeKind {
+// A SimpleType is a LiteralType
+func (SimpleType) LiteralTypeKind() TypeKind {
 	return SIMPLE_TYPE
-}
-
-func (SimpleType) AllowedAsMapKey() bool {
-	return true
 }
 
 func (t SimpleType) AllowedAsEnumValueInitializer() bool {
@@ -120,15 +107,38 @@ func (t SimpleType) AllowedAsEnumValueInitializer() bool {
 	return true
 }
 
+// A SimpleType is a ConcreteType
+func (SimpleType) ConcreteTypeKind() TypeKind {
+	return SIMPLE_TYPE
+}
+
+// A SimpleType is a TypeRef.
+func (SimpleType) TypeRefKind() TypeKind {
+	return SIMPLE_TYPE
+
+}
+
+// From interface TypeRef
 func (SimpleType) Nullable() bool {
 	return false
 }
 
-func (t SimpleType) Identical(other Type) bool {
-	if other.Kind() != SIMPLE_TYPE {
+// From interface TypeRef
+func (SimpleType) MarkUsedAsMapKey() bool {
+	return true
+}
+
+// From interface TypeRef
+func (t SimpleType) MarkUsedAsEnumValueInitializer() bool {
+	if t == BOOL || t == DOUBLE || t == FLOAT {
 		return false
 	}
-	return t == other.(SimpleType)
+	return true
+}
+
+// From interface TypeRef
+func (SimpleType) MarkUsedAsConstantType() bool {
+	return true
 }
 
 func (t SimpleType) String() string {
@@ -165,143 +175,57 @@ func (t SimpleType) String() string {
 //String Type
 /////////////////////////////////////////////////////////////
 type StringType struct {
+	// When used as a type reference indicates whether or not
+	// the reference is nullable. When used as a type this
+	// value is ignored.
 	nullable bool
 }
 
-func (StringType) Kind() TypeKind {
+// A global singleton representing the unique LiteralType string.
+var StringLiteralType LiteralType = StringType{}
+
+// A StringType is a LiteralType
+func (StringType) LiteralTypeKind() TypeKind {
 	return STRING_TYPE
 }
 
-func (StringType) AllowedAsMapKey() bool {
-	return true
+// A StringType is a ConcreteType
+func (StringType) ConcreteTypeKind() TypeKind {
+	return STRING_TYPE
 }
 
+// From interface ConcreteType
 func (StringType) AllowedAsEnumValueInitializer() bool {
 	return false
 }
 
-func (s StringType) Nullable() bool {
-	return s.nullable
+// A StringType is a TypeRef
+func (StringType) TypeRefKind() TypeKind {
+	return STRING_TYPE
 }
 
-func (s StringType) Identical(other Type) bool {
-	return other.Kind() == STRING_TYPE
+// From interface TypeRef
+func (StringType) MarkUsedAsMapKey() bool {
+	return true
 }
 
+// From interface TypeRef
+func (StringType) MarkUsedAsEnumValueInitializer() bool {
+	return false
+}
+
+// From interface TypeRef
+func (StringType) MarkUsedAsConstantType() bool {
+	return true
+}
+
+// From interface TypeRef
 func (s StringType) String() string {
 	nullableSpecifier := ""
 	if s.nullable {
 		nullableSpecifier = "?"
 	}
 	return fmt.Sprintf("string%s", nullableSpecifier)
-}
-
-/////////////////////////////////////////////////////////////
-// Array Type
-/////////////////////////////////////////////////////////////
-type ArrayType struct {
-	nullable bool
-
-	// If fixed_length < 0 then the array does not have a fixed length;
-	fixedLength int
-
-	elementType Type
-}
-
-func NewArrayType(elementType Type, fixedSize int, nullable bool) *ArrayType {
-	return &ArrayType{nullable, fixedSize, elementType}
-}
-
-func (ArrayType) Kind() TypeKind {
-	return ARRAY_TYPE
-}
-
-func (ArrayType) AllowedAsMapKey() bool {
-	return false
-}
-
-func (ArrayType) AllowedAsEnumValueInitializer() bool {
-	return false
-}
-
-func (a ArrayType) Nullable() bool {
-	return a.nullable
-}
-
-func (a ArrayType) Identical(other Type) bool {
-	if other.Kind() != ARRAY_TYPE {
-		return false
-	}
-	otherArrayType := other.(ArrayType)
-	if !(a.elementType.Identical(otherArrayType.elementType)) {
-		return false
-	}
-	return a.fixedLength == otherArrayType.fixedLength
-}
-
-func (a ArrayType) String() string {
-	fixedLengthSpecifier := ""
-	if a.fixedLength > 0 {
-		fixedLengthSpecifier = fmt.Sprint(" ,%d", a.fixedLength)
-	}
-	nullableSpecifier := ""
-	if a.nullable {
-		nullableSpecifier = "?"
-	}
-	return fmt.Sprintf("array<%s%s>%s", a.elementType, fixedLengthSpecifier, nullableSpecifier)
-}
-
-/////////////////////////////////////////////////////////////
-// Map Type
-/////////////////////////////////////////////////////////////
-type MapType struct {
-	nullable bool
-
-	/// The key_type must be a non-reference type or a string.
-	keyType   Type
-	valueType Type
-}
-
-func NewMapType(keyType Type, valueType Type, nullable bool) *MapType {
-	return &MapType{nullable, keyType, valueType}
-}
-
-func (MapType) Kind() TypeKind {
-	return ARRAY_TYPE
-}
-
-func (MapType) AllowedAsMapKey() bool {
-	return false
-}
-
-func (MapType) AllowedAsEnumValueInitializer() bool {
-	return false
-}
-
-func (m MapType) Nullable() bool {
-	return m.nullable
-}
-
-func (m MapType) Identical(other Type) bool {
-	if other.Kind() != MAP_TYPE {
-		return false
-	}
-	otherMapType := other.(MapType)
-	if !(m.keyType.Identical(otherMapType.keyType)) {
-		return false
-	}
-	if !(m.valueType.Identical(otherMapType.valueType)) {
-		return false
-	}
-	return true
-}
-
-func (m MapType) String() string {
-	nullableSpecifier := ""
-	if m.nullable {
-		nullableSpecifier = "?"
-	}
-	return fmt.Sprintf("map<%s%s>%s", m.keyType, m.valueType, nullableSpecifier)
 }
 
 /////////////////////////////////////////////////////////////
@@ -318,34 +242,29 @@ const (
 	H_SHARED_BUFFER
 )
 
+var allHandleKinds = []HandleKind{H_UNSPECIFIED, H_MESSAGE_PIPE, H_DATA_PIPE_CONSUMER, H_DATA_PIPE_PRODUCER, H_SHARED_BUFFER}
+
+// This struct is only ever used to represent type references, never types.
 type HandleType struct {
 	nullable bool
 
 	kind HandleKind
 }
 
-func (HandleType) Kind() TypeKind {
+func (HandleType) TypeRefKind() TypeKind {
 	return HANDLE_TYPE
 }
 
-func (HandleType) AllowedAsMapKey() bool {
+func (HandleType) MarkUsedAsMapKey() bool {
 	return false
 }
 
-func (HandleType) AllowedAsEnumValueInitializer() bool {
+func (HandleType) MarkUsedAsEnumValueInitializer() bool {
 	return false
 }
 
-func (h HandleType) Nullable() bool {
-	return h.nullable
-}
-
-func (h HandleType) Identical(other Type) bool {
-	if other.Kind() != HANDLE_TYPE {
-		return false
-	}
-	otherHandleType := other.(HandleType)
-	return h.kind == otherHandleType.kind
+func (HandleType) MarkUsedAsConstantType() bool {
+	return false
 }
 
 const HANDLE_PREFIX = "handle"
@@ -374,9 +293,158 @@ func (h HandleType) String() string {
 }
 
 /////////////////////////////////////////////////////////////
-// Type Reference
+//
+// Built-In Types
+//
+// The built-in types are defined to be those for which a type reference is
+// immediatley fully-resolved. These are the simple types, string,
+// the handle types and their nullable variants.
+//
+// We make a map of all built-in types by name.  The values of the
+// map are of type TypeRef because this map is only used in the
+// context of type references, not types.
 /////////////////////////////////////////////////////////////
-type TypeReference struct {
+
+var allBuiltInTypes []TypeRef
+var builtInTypeMap map[string]TypeRef
+
+// Initialize allBuiltInTypes and TypeRefMap
+func init() {
+	allBuiltInTypes = make([]TypeRef, len(allSimpleTypes)+len(allHandleKinds)*2+2)
+	// Add the simple types
+	for i, t := range allSimpleTypes {
+		allBuiltInTypes[i] = t
+	}
+
+	// Add the string types
+	i := len(allSimpleTypes)
+	allBuiltInTypes[i] = StringType{false}
+	i++
+	allBuiltInTypes[i] = StringType{true}
+	i++
+
+	// Add the handle types
+	for _, kind := range allHandleKinds {
+		allBuiltInTypes[i] = HandleType{false, kind}
+		i++
+		allBuiltInTypes[i] = HandleType{true, kind}
+		i++
+	}
+
+	builtInTypeMap = make(map[string]TypeRef, len(allBuiltInTypes))
+	for _, t := range allBuiltInTypes {
+		builtInTypeMap[t.String()] = t
+	}
+}
+
+func BuiltInType(name string) TypeRef {
+	return builtInTypeMap[name]
+}
+
+/////////////////////////////////////////////////////////////
+// ArrayTypeRef
+/////////////////////////////////////////////////////////////
+
+// This struct is only ever used to represent type references, never types.
+type ArrayTypeRef struct {
+	nullable bool
+
+	// If fixed_length < 0 then the array does not have a fixed length;
+	fixedLength int
+
+	elementType TypeRef
+}
+
+func NewArrayTypeRef(elementType TypeRef, fixedSize int, nullable bool) *ArrayTypeRef {
+	return &ArrayTypeRef{nullable, fixedSize, elementType}
+}
+
+// An ArrayTypeRef is a TypeRef
+func (ArrayTypeRef) TypeRefKind() TypeKind {
+	return ARRAY_TYPE
+}
+
+func (ArrayTypeRef) MarkUsedAsMapKey() bool {
+	return false
+}
+
+func (ArrayTypeRef) MarkUsedAsEnumValueInitializer() bool {
+	return false
+}
+
+func (ArrayTypeRef) MarkUsedAsConstantType() bool {
+	return false
+}
+
+func (a ArrayTypeRef) Nullable() bool {
+	return a.nullable
+}
+
+func (a ArrayTypeRef) String() string {
+	fixedLengthSpecifier := ""
+	if a.fixedLength > 0 {
+		fixedLengthSpecifier = fmt.Sprint(" ,%d", a.fixedLength)
+	}
+	nullableSpecifier := ""
+	if a.nullable {
+		nullableSpecifier = "?"
+	}
+	return fmt.Sprintf("array<%s%s>%s", a.elementType, fixedLengthSpecifier, nullableSpecifier)
+}
+
+/////////////////////////////////////////////////////////////
+// MapTypeRef
+/////////////////////////////////////////////////////////////
+
+// This struct is only ever used to represent type references, never types.
+type MapTypeRef struct {
+	nullable bool
+
+	/// The key_type must be a simple type, a string or an enum type.
+	keyType   TypeRef
+	valueType TypeRef
+}
+
+func NewMapTypeRef(keyType TypeRef, valueType TypeRef, nullable bool) *MapTypeRef {
+	return &MapTypeRef{nullable, keyType, valueType}
+}
+
+// A MapTypeRef is a TypeRef
+func (MapTypeRef) TypeRefKind() TypeKind {
+	return ARRAY_TYPE
+}
+
+func (MapTypeRef) MarkUsedAsMapKey() bool {
+	return false
+}
+
+func (MapTypeRef) MarkUsedAsEnumValueInitializer() bool {
+	return false
+}
+
+func (MapTypeRef) MarkUsedAsConstantType() bool {
+	return false
+}
+
+func (m MapTypeRef) Nullable() bool {
+	return m.nullable
+}
+
+func (m MapTypeRef) String() string {
+	nullableSpecifier := ""
+	if m.nullable {
+		nullableSpecifier = "?"
+	}
+	return fmt.Sprintf("map<%s%s>%s", m.keyType, m.valueType, nullableSpecifier)
+}
+
+/////////////////////////////////////////////////////////////
+// UserTypeRef
+//
+// A UserTypeRef represents an identifier that refers to
+// a user-defined type: an interface, struct, union or enum.
+/////////////////////////////////////////////////////////////
+type UserTypeRef struct {
 	nullable bool
 
 	interfaceRequest bool
@@ -390,57 +458,51 @@ type TypeReference struct {
 
 	token lexer.Token
 
-	usedAsMapKey bool
+	usedAsMapKey               bool
+	usedAsEnumValueInitializer bool
 
 	resolvedType UserDefinedType
 }
 
-func NewTypeReference(identifier string, nullable bool,
-	interfaceRequest bool, scope *Scope, token lexer.Token) *TypeReference {
-	return &TypeReference{identifier: identifier,
+func NewUserTypeRef(identifier string, nullable bool,
+	interfaceRequest bool, scope *Scope, token lexer.Token) *UserTypeRef {
+	return &UserTypeRef{identifier: identifier,
 		nullable: nullable, interfaceRequest: interfaceRequest,
 		scope: scope, token: token}
 }
 
-func NewResolvedTypeReference(identifier string, resolvedType UserDefinedType) *TypeReference {
-	return &TypeReference{identifier: identifier, resolvedType: resolvedType}
+func NewResolvedUserTypeRef(identifier string, resolvedType UserDefinedType) *UserTypeRef {
+	return &UserTypeRef{identifier: identifier, resolvedType: resolvedType}
 }
 
-func (TypeReference) Kind() TypeKind {
-	return TYPE_REFERENCE
+// A UserTypeRef is a TypeRef
+func (UserTypeRef) TypeRefKind() TypeKind {
+	return USER_DEFINED_TYPE
 }
 
-func (t TypeReference) AllowedAsMapKey() bool {
+func (t UserTypeRef) ResolvedType() UserDefinedType {
+	return t.resolvedType
+}
+
+func (t UserTypeRef) MarkUsedAsMapKey() bool {
 	t.usedAsMapKey = true
 	return true
 }
 
-func (t TypeReference) AllowedAsEnumValueInitializer() bool {
-	if t.resolvedType == nil {
-		return true
-	}
-	return t.resolvedType.Kind() == ENUM_TYPE
+func (t UserTypeRef) MarkUsedAsEnumValueInitializer() bool {
+	t.usedAsEnumValueInitializer = true
+	return true
 }
 
-func (t TypeReference) Nullable() bool {
+func (UserTypeRef) MarkUsedAsConstantType() bool {
+	return false
+}
+
+func (t UserTypeRef) Nullable() bool {
 	return t.nullable
 }
 
-func (t TypeReference) Identical(other Type) bool {
-	if other.Kind() != TYPE_REFERENCE {
-		return false
-	}
-	otherTypeReference := other.(TypeReference)
-	if t.interfaceRequest != otherTypeReference.interfaceRequest {
-		return false
-	}
-	if t.resolvedType == nil || otherTypeReference.resolvedType == nil {
-		return false
-	}
-	return t.resolvedType.Identical(otherTypeReference.resolvedType)
-}
-
-func (t TypeReference) String() string {
+func (t UserTypeRef) String() string {
 	interfaceRequest := ""
 	if t.interfaceRequest {
 		interfaceRequest = "&"
@@ -452,134 +514,80 @@ func (t TypeReference) String() string {
 	return fmt.Sprintf("%s%s%s", t.identifier, interfaceRequest, nullable)
 }
 
-func (t TypeReference) LongString() string {
+func (t UserTypeRef) LongString() string {
 	return fmt.Sprintf("%s %s:%s. (In %s.)", t.identifier,
 		t.scope.file.FileName, t.token.ShortLocationString(), t.scope)
 }
 
 /////////////////////////////////////////////////////////////
-// ValueSpec
+// ValueRef
 /////////////////////////////////////////////////////////////
 
-// A ValueSpec represents an occurrence in the .mojom file of a
-// specification of a value. These occur as the default values of fields,
-// as the values of declared constants, and as the value of an enum value.
-// A value spec is either a literal number or string or else a reference
-// that must eventually resolve to an enum value or a UserDefinedConstant
-type ValueSpec interface {
-	ResolvedValue() *ConcreteValue
+// A ValueRef represents an occurrence in the .mojom file of a
+// reference to a value. These occur as the default values of fields,
+// as the values of declared constants, and as the explicitly assigned value of
+// an enum value.  A ValueRef is either a LiteralValue or a UserValueRef.
+type ValueRef interface {
+	ResolvedValue() ConcreteValue
 }
 
-// Both LiteralValue and ValueReference include ValueSpecBase.
-type ValueSpecBase struct {
+// A reference to a user-defined value. That is, a reference to an EnumValue or
+// a UserDefinedConstant.
+type UserValueRef struct {
+
+	// The scope in which the reference occurs. This is necessary in order
+	// to resolve the reference.
+	scope *Scope
+
+	// The first token that the parser associates with the value reference.
+	token lexer.Token
+
+	// The identifier as it appears in the text.
+	identifier string
+
 	// A value specification always occurs in the context of some
 	// assignment. This may be the assignment of a default value
 	// to a field, the assignment of a value to a declared constant,
 	// or the assignment of a value to an enum value. In all cases we
 	// know at the site of the assignment what the declared type of
-	// the assignee is and we record that here. After the ValueSpec
-	// has been resolved it will also have a |valueType| and that
-	// must be compatible with the |assigneeType|.
-	assigneeType Type
+	// the assignee is and we record that here. After the UserValueRef
+	// has been resolved it we will check that the type of |resolvedValue|
+	// is compatible with |assigneeType|.
+	assigneeType TypeRef
 
-	// The concrete value that the ValueSpec resolves to. If the ValueSpec
-	// is a literal value then we can determine this immediately when the
-	// value spec is parsed. Otherwise we have to wait until qqqqresolution
-	// to know the value.
-	resolvedValue *ConcreteValue
+	// In case the identifier resolves to a UserDefinedConstant this is a
+	// pointer to it.
+	resolvedConstant *UserDefinedConstant
+
+	// If the identifier resolves to an EnumValue then this is
+	// that EnumValue. If the identifierr resolves to a UserDefinedConstant
+	// this is that UserDefinedConstant's resolvedValue. The reason for the
+	// lack of symmetry between the two cases is that an EnumValue is itself
+	// considered a ConcreteValue without having to be resolved whereas a
+	// UserDefinedConstant is not a ConcreteValue, only its |resolvedValue|
+	// is.
+	resolvedValue ConcreteValue
 }
 
-func (v *ValueSpecBase) ResolvedValue() *ConcreteValue {
+func (v UserValueRef) ResolvedValue() ConcreteValue {
 	return v.resolvedValue
 }
 
-// A literal number or string value.
-type LiteralValue struct {
-	ValueSpecBase
-}
-
-func (lv LiteralValue) String() string {
-	return fmt.Sprintf("%s", lv.resolvedValue)
-}
-
-func NewLiteralValue(assigneeType Type, concreteValue ConcreteValue) *LiteralValue {
-	if concreteValue.valueType == nil {
-		panic("concreteValue.valueType may not be nil")
-	}
-	switch concreteValue.valueType.Kind() {
-	case SIMPLE_TYPE, STRING_TYPE:
-		break
-	default:
-		panic(fmt.Sprintf("Only simple types and string types may be "+
-			"literals not %s", concreteValue.valueType))
-	}
-	if assigneeType != concreteValue.valueType {
-		// TODO(rudominer) Handle this case: Firstly we should be checking
-		// for type compatability, not type equality. Secondly, we should
-		// return an error that the caller can use to issue a compilation
-		// error.
-	}
-	literalValue := new(LiteralValue)
-	literalValue.assigneeType = assigneeType
-	literalValue.resolvedValue = &concreteValue
-	return literalValue
-}
-
-// A reference to a value. That is, a reference to an enum value or
-// a reference to a user-defined constant.
-type ValueReference struct {
-	ValueSpecBase
-
-	// The scope in which the reference occurs. This is necessary in order
-	// to resolve the reference.
-	scope *Scope
-	token lexer.Token
-
-	identifier string
-
-	// The name of the constant or enum value. This is only the final
-	// segment of the dotted identifier. The previous segments are a
-	// reference to the container for the constant or the enum type and
-	// are captured by valueType
-	valueName string
-
-	// This is the previous segments of the dotted identifier, not including
-	// the final segment. In the case this reference turns out to refer to
-	// an enum value, this string will refer to the enum type. In case this
-	// reference turns out to refer to a constant declaration, this string will
-	// refer to the scope of that
-	valueScopeName string
-
-	// In case the identifier resolves to the name of a constant, this is
-	// a pointer to the declaration of that constant.
-	resolvedConstant *UserDefinedConstant
-}
-
-func (v *ValueReference) String() string {
+func (v *UserValueRef) String() string {
 	return fmt.Sprintf("%s", v.identifier)
 }
 
-func (v *ValueReference) LongString() string {
+func (v *UserValueRef) LongString() string {
 	return fmt.Sprintf("%s %s:%s. (In %s.)", v.identifier,
 		v.scope.file.FileName, v.token.ShortLocationString(), v.scope)
 }
 
-func NewValueReference(assigneeType Type, identifier string, scope *Scope,
-	token lexer.Token) *ValueReference {
-	valueReference := new(ValueReference)
+func NewUserValueRef(assigneeType TypeRef, identifier string, scope *Scope,
+	token lexer.Token) *UserValueRef {
+	valueReference := new(UserValueRef)
 	valueReference.scope = scope
 	valueReference.token = token
 	valueReference.identifier = identifier
-
-	splitIdentifier := strings.Split(identifier, ".")
-	numSegments := len(splitIdentifier)
-
-	valueReference.valueName = splitIdentifier[numSegments-1]
-
-	valueReference.valueScopeName = ""
-	if numSegments > 1 {
-		valueReference.valueScopeName = strings.Join(splitIdentifier[0:numSegments-1], ".")
-	}
 
 	return valueReference
 }
@@ -588,148 +596,65 @@ func NewValueReference(assigneeType Type, identifier string, scope *Scope,
 // Concrete Values
 /////////////////////////////////////////////////////////////
 
-type ConcreteValue struct {
-	// The Type must be simple, string, or a type references
-	// whose resolvedType is an enum type. The accessor methods
-	// below return the appropriate type of value.
-	valueType Type
+// A ConcreteValue is a LiteralValue or an EnumValue
+type ConcreteValue interface {
+	ValueType() ConcreteType
+	Value() interface{}
+}
+
+/////////////////////////////////////////////////////////////
+// Literal Values
+/////////////////////////////////////////////////////////////
+
+// A LiteralValue represents a string, number or boolean literal.
+// The LiteralValue struct implements both ValueRef and ConcreteValue.
+// This reflects the fact that a literal value is already resolved.
+type LiteralValue struct {
+	// The Type must be simple or string
+	valueType LiteralType
 
 	value interface{}
 }
 
-func (cv ConcreteValue) String() string {
-	switch cv.valueType.Kind() {
+func MakeStringLiteralValue(text string) LiteralValue {
+	return LiteralValue{StringLiteralType, text}
+}
+
+func MakeBoolLiteralValue(value bool) LiteralValue {
+	return LiteralValue{BOOL, value}
+}
+
+func MakeInt64LiteralValue(value int64) LiteralValue {
+	return LiteralValue{INT64, value}
+}
+
+func MakeDoubleLiteralValue(value float64) LiteralValue {
+	return LiteralValue{DOUBLE, value}
+}
+
+func (lv LiteralValue) String() string {
+	switch lv.valueType.ConcreteTypeKind() {
 	case STRING_TYPE:
-		return fmt.Sprintf("\"%v\"", cv.value)
+		return fmt.Sprintf("\"%v\"", lv.value)
 	default:
-		return fmt.Sprintf("%v", cv.value)
+		return fmt.Sprintf("%v", lv.value)
 	}
 }
 
-func (cv ConcreteValue) Type() Type {
-	return cv.valueType
+func (lv LiteralValue) LiteralValueType() LiteralType {
+	return lv.valueType
 }
 
-func makeBuiltinConcreteValue(typeName string, value interface{}) ConcreteValue {
-	valType := BuiltInTypeMap[typeName]
-	if valType == nil {
-		panic(fmt.Sprintf("No such builtin type %s", typeName))
-	}
-	return ConcreteValue{valType, value}
+// A LiteralValue is a ConcreteValue.
+func (lv LiteralValue) ValueType() ConcreteType {
+	return lv.valueType
+}
+func (v LiteralValue) Value() interface{} {
+	return v.value
 }
 
-func MakeStringConcreteValue(text string) ConcreteValue {
-	return makeBuiltinConcreteValue("string", text)
-}
-
-func MakeBoolConcreteValue(value bool) ConcreteValue {
-	return makeBuiltinConcreteValue("bool", value)
-}
-
-func MakeInt64ConcreteValue(value int64) ConcreteValue {
-	return makeBuiltinConcreteValue("int64", value)
-}
-
-func MakeDoubleConcreteValue(value float64) ConcreteValue {
-	return makeBuiltinConcreteValue("double", value)
-}
-
-func MakeConcreteEnumValue(value *EnumValue) ConcreteValue {
-	mojoEnum := value.enumType
-	enumType := NewResolvedTypeReference(mojoEnum.FullyQualifiedName(), mojoEnum)
-	return ConcreteValue{enumType, value}
-}
-
-func (cv ConcreteValue) isSimpleType(simpleType SimpleType) bool {
-	if cv.valueType.Kind() == SIMPLE_TYPE {
-		if cv.valueType.(SimpleType) == simpleType {
-			return true
-		}
-	}
-	return false
-}
-
-func (cv ConcreteValue) GetBoolValue() (value bool, success bool) {
-	if success = cv.isSimpleType(BOOL); success {
-		value = cv.value.(bool)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetDoubleValue() (value float64, success bool) {
-	if success = cv.isSimpleType(DOUBLE); success {
-		value = cv.value.(float64)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetFloatValue() (value float32, success bool) {
-	if success = cv.isSimpleType(FLOAT); success {
-		value = cv.value.(float32)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetInt8Value() (value int8, success bool) {
-	if success = cv.isSimpleType(INT8); success {
-		value = cv.value.(int8)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetInt16Value() (value int16, success bool) {
-	if success = cv.isSimpleType(INT16); success {
-		value = cv.value.(int16)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetInt32Value() (value int32, success bool) {
-	if success = cv.isSimpleType(INT32); success {
-		value = cv.value.(int32)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetInt64Value() (value int64, success bool) {
-	if success = cv.isSimpleType(INT64); success {
-		value = cv.value.(int64)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetIntU8Value() (value uint8, success bool) {
-	if success = cv.isSimpleType(UINT8); success {
-		value = cv.value.(uint8)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetUInt16Value() (value uint16, success bool) {
-	if success = cv.isSimpleType(UINT16); success {
-		value = cv.value.(uint16)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetUInt32Value() (value uint32, success bool) {
-	if success = cv.isSimpleType(UINT32); success {
-		value = cv.value.(uint32)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetUInt64Value() (value uint64, success bool) {
-	if success = cv.isSimpleType(UINT64); success {
-		value = cv.value.(uint64)
-	}
-	return
-}
-
-func (cv ConcreteValue) GetEnumValue() (value EnumValue, success bool) {
-	if cv.valueType.Kind() == TYPE_REFERENCE {
-		success = true
-		value = cv.value.(EnumValue)
-	}
-	return
+// A LiteralValue is also a ValueRef and is its own
+// ResolvedValue.
+func (v LiteralValue) ResolvedValue() ConcreteValue {
+	return v
 }

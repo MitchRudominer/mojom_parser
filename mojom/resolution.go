@@ -9,7 +9,7 @@ import (
 /// //////////////////////////////////////////////////////////////////
 
 func (d *MojomDescriptor) Resolve() error {
-	unresolvedTypeReferences := make([]*TypeReference,
+	unresolvedTypeReferences := make([]*UserTypeRef,
 		len(d.unresolvedTypeReferences))
 	numUnresolvedTypeReferences := 0
 	for _, ref := range d.unresolvedTypeReferences {
@@ -21,7 +21,7 @@ func (d *MojomDescriptor) Resolve() error {
 		}
 	}
 
-	unresolvedValueReferences := make([]*ValueReference,
+	unresolvedValueReferences := make([]*UserValueRef,
 		len(d.unresolvedValueReferences))
 	numUnresolvedValueReferences := 0
 	for _, ref := range d.unresolvedValueReferences {
@@ -58,7 +58,7 @@ func (d *MojomDescriptor) Resolve() error {
 	return fmt.Errorf(errorMessage)
 }
 
-func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
+func (d *MojomDescriptor) resolveTypeRef(ref *UserTypeRef) bool {
 	ref.resolvedType = ref.scope.LookupType(ref.identifier)
 	if ref.usedAsMapKey && ref.resolvedType != nil && ref.resolvedType.Kind() != ENUM_TYPE {
 		// TODO(rudominer) Emit a resolution type error.
@@ -66,7 +66,7 @@ func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
 	return ref.resolvedType != nil
 }
 
-func (d *MojomDescriptor) resolveValueRef(ref *ValueReference) (resolved bool) {
+func (d *MojomDescriptor) resolveValueRef(ref *UserValueRef) (resolved bool) {
 	userDefinedValue := ref.scope.LookupValue(ref.identifier)
 	if userDefinedValue == nil {
 		return false
@@ -76,7 +76,7 @@ func (d *MojomDescriptor) resolveValueRef(ref *ValueReference) (resolved bool) {
 		ref.resolvedConstant = declaredConstant
 		// We set the resolved value of the reference to the resoled value of the
 		// right-hand-side of the constant declaration.
-		ref.resolvedValue = declaredConstant.valueSpec.ResolvedValue()
+		ref.resolvedValue = declaredConstant.valueRef.ResolvedValue()
 		if ref.resolvedValue != nil {
 			return true
 		}
@@ -87,7 +87,6 @@ func (d *MojomDescriptor) resolveValueRef(ref *ValueReference) (resolved bool) {
 	// The identifier resolves to an enum value. We se the resolved value
 	// of the reference to be the enum value itself (not the integer value
 	// of the enum value.)
-	concreteValue := MakeConcreteEnumValue(userDefinedValue.AsEnumValue())
-	ref.resolvedValue = &concreteValue
+	ref.resolvedValue = userDefinedValue.AsEnumValue()
 	return ref.resolvedValue != nil
 }

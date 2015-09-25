@@ -139,6 +139,8 @@ const (
 	E_INTEGER_OUT_OF_RANGE
 
 	E_INTEGER_PARSE_ERROR
+
+	E_TYPE_NOT_ASSIGNMENT_COMPATIBLE
 )
 
 type parserError struct {

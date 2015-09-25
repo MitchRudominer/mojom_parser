@@ -110,8 +110,8 @@ type MojomDescriptor struct {
 	mojomFiles  []*MojomFile
 
 	scopesByName              map[string]*Scope
-	unresolvedTypeReferences  []*TypeReference
-	unresolvedValueReferences []*ValueReference
+	unresolvedTypeReferences  []*UserTypeRef
+	unresolvedValueReferences []*UserValueRef
 }
 
 func NewMojomDescriptor() *MojomDescriptor {
@@ -124,8 +124,8 @@ func NewMojomDescriptor() *MojomDescriptor {
 	// The global namespace scope.
 	descriptor.scopesByName[""] = NewAbstractModuleScope("", descriptor)
 
-	descriptor.unresolvedTypeReferences = make([]*TypeReference, 0)
-	descriptor.unresolvedValueReferences = make([]*ValueReference, 0)
+	descriptor.unresolvedTypeReferences = make([]*UserTypeRef, 0)
+	descriptor.unresolvedValueReferences = make([]*UserValueRef, 0)
 	return descriptor
 }
 
@@ -198,11 +198,11 @@ func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
 	return mojomFile
 }
 
-func (d *MojomDescriptor) RegisterUnresolvedTypeReference(typeReference *TypeReference) {
+func (d *MojomDescriptor) RegisterUnresolvedTypeReference(typeReference *UserTypeRef) {
 	d.unresolvedTypeReferences = append(d.unresolvedTypeReferences, typeReference)
 }
 
-func (d *MojomDescriptor) RegisterUnresolvedValueReference(valueReference *ValueReference) {
+func (d *MojomDescriptor) RegisterUnresolvedValueReference(valueReference *UserValueRef) {
 	d.unresolvedValueReferences = append(d.unresolvedValueReferences, valueReference)
 }
 
