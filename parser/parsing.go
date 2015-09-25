@@ -5,7 +5,6 @@ import (
 	"github.com/rudominer/mojom_parser/lexer"
 	"github.com/rudominer/mojom_parser/mojom"
 	"strconv"
-	"strings"
 )
 
 // The code in this file implements a recursive-descent, predictive parser
@@ -16,7 +15,10 @@ import (
 // is necessary in order to be able to use it to do predictive top-down
 // parsing. (See Section 4.4.3 of "Compilers: Principles, Techniques and Tools"
 // 2nd Edition, by Aho et al."). This requirement explains the slight awkwardness
-// seen below regarding the handling of Mojom attributes.
+// seen below regarding the handling of Mojom attributes. (Disclaimer: There are
+// a few productions that technically render the grammar LL(n) for some small
+// integer n rather than strictly LL(1). But this does not affect the parsing
+// in any significant way.)
 //
 // Our recursive descent logic is implemented in the methods below with names of
 // the form "parseX()" where "X" is (an altered spelling of) one of our
@@ -259,6 +261,7 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 	nextToken := p.lastConsumed
 	for nextToken.Kind != lexer.RBRACKET {
 		key := p.readName()
+		p.attachToken()
 		if !p.OK() {
 			return
 		}
@@ -273,6 +276,7 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 		} else {
 			value = p.parseLiteral()
 		}
+		p.attachToken()
 
 		if !p.OK() {
 			return
@@ -594,6 +598,7 @@ func (p *Parser) parseStructDecl(attributes *mojom.Attributes) (mojomStruct *moj
 	}
 
 	simpleName := p.readName()
+	p.attachToken()
 	if !p.OK() {
 		return
 	}
@@ -686,6 +691,7 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) (structField moj
 
 	fieldType := p.parseType()
 	fieldName := p.readName()
+	p.attachToken()
 	ordinalValue := p.readOrdinal()
 	var defaultValue mojom.ValueSpec
 	if p.tryMatch(lexer.EQUALS) {
@@ -714,6 +720,7 @@ func (p *Parser) parseUnionDecl(attributes *mojom.Attributes) (union *mojom.Mojo
 	}
 
 	simpleName := p.readName()
+	p.attachToken()
 	if !p.OK() {
 		return
 	}
@@ -794,6 +801,7 @@ func (p *Parser) parseEnumDecl(attributes *mojom.Attributes) (enum *mojom.MojomE
 	}
 
 	simpleName := p.readName()
+	p.attachToken()
 	if !p.OK() {
 		return
 	}
@@ -850,6 +858,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 			}
 			firstValue = false
 			name := p.readName()
+			p.attachToken()
 			nameToken := p.lastConsumed
 			var valueSpec mojom.ValueSpec
 			if p.tryMatch(lexer.EQUALS) {
@@ -879,6 +888,9 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 			return false
 		}
 	}
+	if p.OK() {
+		mojomEnum.ComputeEnumValues()
+	}
 	return p.OK()
 }
 
@@ -891,7 +903,14 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 	p.pushChildNode("enumValueInitializer")
 	defer p.popNode()
 
-	valueSpec := p.parseValue(mojom.TypeForEnumValueInitializer(mojoEnum))
+	// We need to manufacture an instance of Type to act as the "assigneeType"
+	// for the new ValueSpec we are creating. This is because unlike
+	// other types of value assignment, an enum value initializer is not
+	// preceded by a type reference for the assignee. Rather the type of
+	// the assignee is implicit in the scope.
+	enumType := mojom.NewResolvedTypeReference(mojoEnum.FullyQualifiedName(), mojoEnum)
+
+	valueSpec := p.parseValue(enumType)
 	if valueSpec == nil {
 		return nil
 	}
@@ -945,14 +964,16 @@ func (p *Parser) parseValue(assigneeType mojom.Type) mojom.ValueSpec {
 	if !p.OK() {
 		return nil
 	}
-	p.pushChildNode("parseValue")
+	p.pushChildNode("value")
 	defer p.popNode()
 
 	nextToken := p.peekNextToken("I was parsing a value.")
+	p.attachToken()
 	if nextToken.Kind == lexer.NAME {
 		return p.readValueReference(assigneeType)
 	}
 	concreteValue := p.parseLiteral()
+	p.attachToken()
 	if !p.OK() || concreteValue.Type() == nil {
 		return nil
 	}
@@ -1012,7 +1033,7 @@ func (p *Parser) parseNumberLiteral() mojom.ConcreteValue {
 	nextToken := p.peekNextToken("I was parsing a numberliteral.")
 	switch nextToken.Kind {
 	case lexer.INT_CONST_DEC, lexer.INT_CONST_HEX:
-		value, _ := p.readPositiveIntegerLiteral(initialMinus)
+		value, _ := p.readPositiveIntegerLiteral(initialMinus, true, 64)
 		return mojom.MakeInt64ConcreteValue(value)
 	case lexer.FLOAT_CONST:
 		value, _ := p.readPositiveFloatLiteral(initialMinus)
@@ -1056,6 +1077,7 @@ func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 	return
 }
 
+// TYPE -> BUILT_IN_TYPE | ARRAY_TYPE | MAP_TYPE | TYPE_REFERENCE
 func (p *Parser) parseType() mojom.Type {
 	if !p.OK() {
 		return nil
@@ -1067,6 +1089,8 @@ func (p *Parser) parseType() mojom.Type {
 }
 
 ///////////////// Methods for parsing types and values ////////
+
+// TYPE -> BUILT_IN_TYPE | ARRAY_TYPE | MAP_TYPE | TYPE_REFERENCE
 func (p *Parser) readType() mojom.Type {
 	if !p.OK() {
 		return nil
@@ -1086,6 +1110,13 @@ func (p *Parser) readType() mojom.Type {
 	return mojomType
 }
 
+// BUILT_IN_TYPE        -> SIMPLE_TYPE | STRING_TYPE | HANDLE_TYPE
+// SIMPLE_TYPE          -> bool | FLOAT_TYPE | INTEGER_TYPE
+// FLOAT_TYPE           -> float | double
+// HANDLE_TYPE          -> handle langle [HANDLE_KIND] rangle [qstn]
+// HANDLE_KIND          -> message_pipe | data_pipe_consumer | data_pipe_producer | shared_buffer
+// INTEGER_TYPE         -> int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64
+// STRING_TYPE          -> string [qstn]
 func (p *Parser) tryReadBuiltInType() mojom.Type {
 	if !p.OK() {
 		return nil
@@ -1142,20 +1173,86 @@ func (p *Parser) tryReadBuiltInType() mojom.Type {
 	return builtInType
 }
 
+// ARRAY_TYPE  -> array langle TYPE [comma int_const_dec] rangle [qstn]
 func (p *Parser) tryReadArrayType() mojom.Type {
 	if !p.OK() {
 		return nil
 	}
-	return nil
+
+	nextToken := p.peekNextToken("Trying to read a type.")
+	if nextToken.Kind != lexer.NAME || nextToken.Text != "array" {
+		return nil
+	}
+	p.consumeNextToken()
+	if !p.match(lexer.LANGLE) {
+		return nil
+	}
+
+	elementType := p.parseType()
+	if !p.OK() {
+		return nil
+	}
+
+	isFixedSize := p.tryMatch(lexer.COMMA)
+	fixedSize := -1
+	if isFixedSize {
+		if size, ok := p.readPositiveIntegerLiteral(false, false, 0); ok {
+			fixedSize = int(size)
+		} else {
+			return nil
+		}
+
+	}
+	if !p.match(lexer.RANGLE) {
+		return nil
+	}
+	nullable := p.tryMatch(lexer.QSTN)
+
+	return mojom.NewArrayType(elementType, fixedSize, nullable)
 }
 
+// MAP_TYPE      -> map langle MAP_KEY_TYPE comma TYPE rangle [qstn]
+// MAP_KEY_TYPE  -> SIMPLE_TYPE | string | ENUM_TYPE
 func (p *Parser) tryReadMapType() mojom.Type {
 	if !p.OK() {
 		return nil
 	}
-	return nil
+
+	nextToken := p.peekNextToken("Trying to read a type.")
+	if nextToken.Kind != lexer.NAME || nextToken.Text != "map" {
+		return nil
+	}
+	p.consumeNextToken()
+	if !p.match(lexer.LANGLE) {
+		return nil
+	}
+
+	keyToken := p.peekNextToken("Trying to read a type.")
+	keyType := p.parseType()
+	p.match(lexer.COMMA)
+	valueType := p.parseType()
+	if !p.match(lexer.RANGLE) {
+		return nil
+	}
+	nullable := p.tryMatch(lexer.QSTN)
+
+	if !keyType.AllowedAsMapKey() {
+		message := fmt.Sprintf("The type %s at %s is not allowed as the key "+
+			"type of a map. Only simple types, strings and enum types may "+
+			"be map keys.",
+			keyType, keyToken.LongLocationString())
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return nil
+	}
+
+	return mojom.NewMapType(keyType, valueType, nullable)
 }
 
+// TYPE_REFERENCE   -> INTERFACE_TYPE | STRUCT_TYPE | UNION_TYPE | ENUM_TYPE
+// INTERFACE_TYPE   -> IDENTIFIER [amp] [qstn] {{where IDENTIFIER resolves to an interface}}
+// STRUCT_TYPE      -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to a struct}}
+// UNION_TYPE       -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to a union}}
+// ENUM_TYPE        -> IDENTIFIER [qstn] {{where IDENTIFIER resolves to an interface}}
 func (p *Parser) readTypeReference() mojom.Type {
 	if !p.OK() {
 		return nil
@@ -1196,7 +1293,8 @@ func (p *Parser) readValueReference(assigneeType mojom.Type) mojom.ValueSpec {
 }
 
 // POS_INT_LITERAL -> int_const_dec | int_const_hex
-func (p *Parser) readPositiveIntegerLiteral(initialMinus bool) (int64, bool) {
+func (p *Parser) readPositiveIntegerLiteral(initialMinus, acceptHex bool,
+	maxBits int) (int64, bool) {
 	nextToken := p.peekNextToken("I was parsing an integer literal.")
 	p.consumeNextToken()
 	base := 10
@@ -1206,7 +1304,15 @@ func (p *Parser) readPositiveIntegerLiteral(initialMinus bool) (int64, bool) {
 	}
 	switch nextToken.Kind {
 	case lexer.INT_CONST_DEC:
+		break
 	case lexer.INT_CONST_HEX:
+		if !acceptHex {
+			message := fmt.Sprintf("Illegal value %s at %s. Only a decimal "+
+				"integer literal is allowed here. Hexadecimal is not valid.",
+				nextToken.LongLocationString(), nextToken)
+			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			return 0, false
+		}
 		if len(intText) < 3 {
 			message := fmt.Sprintf("Invalid hex integer literal"+
 				" '%s' at %s.", intText, nextToken.LongLocationString())
@@ -1217,11 +1323,14 @@ func (p *Parser) readPositiveIntegerLiteral(initialMinus bool) (int64, bool) {
 		base = 16
 
 	default:
-		panic("readPositiveIntegerLiteral() should only be invoked when " +
-			"the next token is an integer literal.")
+		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting a "+
+			"positive integer literal.",
+			nextToken.LongLocationString(), nextToken)
+		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		return 0, false
 	}
 
-	intVal, err := strconv.ParseInt(intText, base, 64)
+	intVal, err := strconv.ParseInt(intText, base, maxBits)
 	if err == nil {
 		return intVal, true
 	}
@@ -1421,73 +1530,6 @@ func (p *Parser) pushScope(scope *mojom.Scope) {
 func (p *Parser) popScope() {
 	if p.currentScope != nil {
 		p.currentScope = p.currentScope.Parent()
-	}
-}
-
-////////////////// Parse Tree /////////////////////
-
-///// ParseNode type /////
-type ParseNode struct {
-	name       string
-	firstToken *lexer.Token
-	parent     *ParseNode
-	children   []*ParseNode
-}
-
-func (node *ParseNode) String() string {
-	return toString(node, 0)
-}
-
-// Recursively generates a string representing a tree of nodes
-// where indentLevel indicates the level in the tree
-func toString(node *ParseNode, indentLevel int) string {
-	prefix := "\n" + strings.Repeat(".", indentLevel) + "^"
-	firstToken := ""
-	if node.firstToken != nil {
-		firstToken = fmt.Sprintf("(%s)", node.firstToken.String())
-	}
-	s := prefix + node.name + firstToken
-	if node.children != nil {
-		for _, child := range node.children {
-			s += toString(child, indentLevel+3)
-		}
-	}
-	return s
-}
-
-func newParseNode(name string) *ParseNode {
-	node := new(ParseNode)
-	node.name = name
-	return node
-}
-
-func (node *ParseNode) appendChild(name string, firstToken *lexer.Token) *ParseNode {
-	child := newParseNode(name)
-	child.firstToken = firstToken
-	child.parent = node
-	node.children = append(node.children, child)
-	return child
-}
-
-func (p *Parser) pushRootNode(name string) {
-	if !p.debugMode {
-		return
-	}
-	p.rootNode = newParseNode(name)
-	p.currentNode = p.rootNode
-}
-
-func (p *Parser) pushChildNode(name string) {
-	if p.currentNode != nil {
-		tokenCopy := p.lastSeen
-		childNode := p.currentNode.appendChild(name, &(tokenCopy))
-		p.currentNode = childNode
-	}
-}
-
-func (p *Parser) popNode() {
-	if p.currentNode != nil {
-		p.currentNode = p.currentNode.parent
 	}
 }
 

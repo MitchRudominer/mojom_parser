@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/rudominer/mojom_parser/lexer"
 	"github.com/rudominer/mojom_parser/mojom"
+	"strings"
 )
 
 ///////////////////////////////////////////////////////////////////////
@@ -55,6 +56,10 @@ func NewParser(fileName, fileContents string,
 	parser.mojomDescriptor = descriptorToPopulate
 	parser.mojomFile = parser.mojomDescriptor.AddMojomFile(fileName)
 	return parser
+}
+
+func (p *Parser) SetDebugMode(debug bool) {
+	p.debugMode = debug
 }
 
 func (p *Parser) Parse() {
@@ -144,4 +149,78 @@ type parserError struct {
 // Make parserError implement the error interface.
 func (e parserError) Error() string {
 	return e.message
+}
+
+////////////////// Parse Tree /////////////////////
+
+///// ParseNode type /////
+type ParseNode struct {
+	name     string
+	tokens   []*lexer.Token
+	parent   *ParseNode
+	children []*ParseNode
+}
+
+func (node *ParseNode) String() string {
+	return toString(node, 0)
+}
+
+// Recursively generates a string representing a tree of nodes
+// where indentLevel indicates the level in the tree
+func toString(node *ParseNode, indentLevel int) string {
+	prefix := "\n" + strings.Repeat(".", indentLevel) + "^"
+	firstTokens := ""
+	if node.tokens != nil {
+		firstTokens = fmt.Sprintf("%s", node.tokens)
+	}
+	s := fmt.Sprintf("%s%s%s", prefix, node.name, firstTokens)
+	if node.children != nil {
+		for _, child := range node.children {
+			s += toString(child, indentLevel+3)
+		}
+	}
+	return s
+}
+
+func newParseNode(name string) *ParseNode {
+	node := new(ParseNode)
+	node.name = name
+	return node
+}
+
+func (node *ParseNode) appendChild(name string, firstToken *lexer.Token) *ParseNode {
+	child := newParseNode(name)
+	child.tokens = append(child.tokens, firstToken)
+	child.parent = node
+	node.children = append(node.children, child)
+	return child
+}
+
+func (p *Parser) pushRootNode(name string) {
+	if !p.debugMode {
+		return
+	}
+	p.rootNode = newParseNode(name)
+	p.currentNode = p.rootNode
+}
+
+func (p *Parser) pushChildNode(name string) {
+	if p.currentNode != nil {
+		tokenCopy := p.lastSeen
+		childNode := p.currentNode.appendChild(name, &(tokenCopy))
+		p.currentNode = childNode
+	}
+}
+
+func (p *Parser) attachToken() {
+	if p.currentNode != nil {
+		tokenCopy := p.lastSeen
+		p.currentNode.tokens = append(p.currentNode.tokens, &tokenCopy)
+	}
+}
+
+func (p *Parser) popNode() {
+	if p.currentNode != nil {
+		p.currentNode = p.currentNode.parent
+	}
 }

@@ -120,7 +120,7 @@ func (tokenKind TokenKind) String() string {
 	case STRUCT:
 		return "'struct'"
 	case UNION:
-		return "'import'"
+		return "'union'"
 	case INTERFACE:
 		return "'interface'"
 	case ENUM:

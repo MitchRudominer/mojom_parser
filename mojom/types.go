@@ -208,6 +208,10 @@ type ArrayType struct {
 	elementType Type
 }
 
+func NewArrayType(elementType Type, fixedSize int, nullable bool) *ArrayType {
+	return &ArrayType{nullable, fixedSize, elementType}
+}
+
 func (ArrayType) Kind() TypeKind {
 	return ARRAY_TYPE
 }
@@ -256,6 +260,10 @@ type MapType struct {
 	/// The key_type must be a non-reference type or a string.
 	keyType   Type
 	valueType Type
+}
+
+func NewMapType(keyType Type, valueType Type, nullable bool) *MapType {
+	return &MapType{nullable, keyType, valueType}
 }
 
 func (MapType) Kind() TypeKind {
@@ -382,6 +390,8 @@ type TypeReference struct {
 
 	token lexer.Token
 
+	usedAsMapKey bool
+
 	resolvedType UserDefinedType
 }
 
@@ -392,12 +402,17 @@ func NewTypeReference(identifier string, nullable bool,
 		scope: scope, token: token}
 }
 
+func NewResolvedTypeReference(identifier string, resolvedType UserDefinedType) *TypeReference {
+	return &TypeReference{identifier: identifier, resolvedType: resolvedType}
+}
+
 func (TypeReference) Kind() TypeKind {
 	return TYPE_REFERENCE
 }
 
 func (t TypeReference) AllowedAsMapKey() bool {
-	return false
+	t.usedAsMapKey = true
+	return true
 }
 
 func (t TypeReference) AllowedAsEnumValueInitializer() bool {
@@ -467,15 +482,9 @@ type ValueSpecBase struct {
 	// must be compatible with the |assigneeType|.
 	assigneeType Type
 
-	// The actual type of the value that the ValueSpec resolves to.
-	// If the ValueSpec is a literal then we can determine this type
-	// immediately when the ValueSpec is parsed. Otherwise we have to
-	// wait until resolution to know the value type.
-	valueType Type
-
 	// The concrete value that the ValueSpec resolves to. If the ValueSpec
 	// is a literal value then we can determine this immediately when the
-	// value spec is parsed. Otherwise we have to wait until resolution
+	// value spec is parsed. Otherwise we have to wait until qqqqresolution
 	// to know the value.
 	resolvedValue *ConcreteValue
 }
@@ -512,7 +521,6 @@ func NewLiteralValue(assigneeType Type, concreteValue ConcreteValue) *LiteralVal
 	}
 	literalValue := new(LiteralValue)
 	literalValue.assigneeType = assigneeType
-	literalValue.valueType = concreteValue.Type()
 	literalValue.resolvedValue = &concreteValue
 	return literalValue
 }
@@ -559,7 +567,6 @@ func (v *ValueReference) LongString() string {
 func NewValueReference(assigneeType Type, identifier string, scope *Scope,
 	token lexer.Token) *ValueReference {
 	valueReference := new(ValueReference)
-	valueReference.valueType = assigneeType
 	valueReference.scope = scope
 	valueReference.token = token
 	valueReference.identifier = identifier
@@ -577,22 +584,10 @@ func NewValueReference(assigneeType Type, identifier string, scope *Scope,
 	return valueReference
 }
 
-// We need to manufacture an instance of Type to act as the "assigneeType"
-// for the new ValueReference we are creating. This is because unlike
-// other types of value assignment, an enum value initializer is not
-// preceded by a type reference for the assignee. Rather the type of
-// the assignee is implicit in the scope.
-func TypeForEnumValueInitializer(mojoEnum *MojomEnum) *TypeReference {
-	enumType := NewTypeReference(mojoEnum.fullyQualifiedName, false, false,
-		mojoEnum.scope, lexer.Token{})
-	enumType.resolvedType = mojoEnum
-	return enumType
-}
+/////////////////////////////////////////////////////////////
+// Concrete Values
+/////////////////////////////////////////////////////////////
 
-/////////////////////////////////////////////////////////////
-// Constant Values
-/////////////////////////////////////////////////////////////
-///
 type ConcreteValue struct {
 	// The Type must be simple, string, or a type references
 	// whose resolvedType is an enum type. The accessor methods
@@ -637,6 +632,12 @@ func MakeInt64ConcreteValue(value int64) ConcreteValue {
 
 func MakeDoubleConcreteValue(value float64) ConcreteValue {
 	return makeBuiltinConcreteValue("double", value)
+}
+
+func MakeConcreteEnumValue(value *EnumValue) ConcreteValue {
+	mojoEnum := value.enumType
+	enumType := NewResolvedTypeReference(mojoEnum.FullyQualifiedName(), mojoEnum)
+	return ConcreteValue{enumType, value}
 }
 
 func (cv ConcreteValue) isSimpleType(simpleType SimpleType) bool {

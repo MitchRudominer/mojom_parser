@@ -375,7 +375,11 @@ func (e *MojomEnum) AddEnumValue(name string, valueSpec ValueSpec,
 	enumValue := new(EnumValue)
 	enumValue.Init(name, ENUM_VALUE, enumValue, valueSpec, attributes)
 	e.values = append(e.values, enumValue)
+	enumValue.enumType = e
 	return enumValue.RegisterInScope(e.containedDeclarations)
+}
+
+func (e *MojomEnum) ComputeEnumValues() {
 }
 
 func (e *MojomEnum) String() string {
@@ -448,8 +452,11 @@ type UserDefinedValueBase struct {
 	fullyQualifiedName string
 	kind               UserDefinedValueKind
 	valueKey           string
-	valueSpec          ValueSpec
-	scope              *Scope
+	// This is the value specified in the right-hand-side of the value
+	// declaration. For an enum value it will be an integer literal. For
+	// a constant declartion it may be a literal or it may be a reference.
+	valueSpec ValueSpec
+	scope     *Scope
 }
 
 // This method is invoked from the constructors for the containing types:
@@ -469,6 +476,19 @@ func (v *UserDefinedValueBase) RegisterInScope(scope *Scope) *DuplicateNameError
 		return err
 	}
 	v.scope = scope
+
+	if v.thisValue.Kind() == ENUM_VALUE {
+		if scope.kind != SCOPE_ENUM {
+			panic("An enum value may only be registered within the scope of an enum.")
+		}
+		// We register an enum value twice: Once within it's enum as a scope
+		// and once within its enum's scope directly. In this way the enum
+		// value may be reference either with or without the name of the
+		// enum as a prefix.
+		if err := scope.Parent().RegisterValue(v.thisValue); err != nil {
+			return err
+		}
+	}
 
 	v.fullyQualifiedName = buildDottedName(scope.fullyQualifiedName, v.simpleName)
 	v.valueKey = computeTypeKey(v.fullyQualifiedName)

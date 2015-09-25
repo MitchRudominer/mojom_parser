@@ -60,6 +60,9 @@ func (d *MojomDescriptor) Resolve() error {
 
 func (d *MojomDescriptor) resolveTypeRef(ref *TypeReference) bool {
 	ref.resolvedType = ref.scope.LookupType(ref.identifier)
+	if ref.usedAsMapKey && ref.resolvedType != nil && ref.resolvedType.Kind() != ENUM_TYPE {
+		// TODO(rudominer) Emit a resolution type error.
+	}
 	return ref.resolvedType != nil
 }
 
@@ -69,7 +72,10 @@ func (d *MojomDescriptor) resolveValueRef(ref *ValueReference) (resolved bool) {
 		return false
 	}
 	if declaredConstant := userDefinedValue.AsDeclaredConstant(); declaredConstant != nil {
+		// The identifier resolves to a user-declared constant.
 		ref.resolvedConstant = declaredConstant
+		// We set the resolved value of the reference to the resoled value of the
+		// right-hand-side of the constant declaration.
 		ref.resolvedValue = declaredConstant.valueSpec.ResolvedValue()
 		if ref.resolvedValue != nil {
 			return true
@@ -77,7 +83,11 @@ func (d *MojomDescriptor) resolveValueRef(ref *ValueReference) (resolved bool) {
 		// TODO(rudominer) We need to figure out how to handle chains of value references.
 		return false
 	}
-	ref.resolvedValue = userDefinedValue.AsEnumValue().valueSpec.ResolvedValue()
-	// TODO(rudominer) We also need to set the type of the resolved value.
+
+	// The identifier resolves to an enum value. We se the resolved value
+	// of the reference to be the enum value itself (not the integer value
+	// of the enum value.)
+	concreteValue := MakeConcreteEnumValue(userDefinedValue.AsEnumValue())
+	ref.resolvedValue = &concreteValue
 	return ref.resolvedValue != nil
 }

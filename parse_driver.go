@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/rudominer/mojom_parser/mojom"
 	"github.com/rudominer/mojom_parser/parser"
@@ -48,14 +49,15 @@ type ParseResult struct {
 }
 
 type ParseDriver struct {
+	debug          bool
 	descriptor     *mojom.MojomDescriptor
 	err            error
 	fileProvider   FileProvider
 	filesToProcess []FileReference
 }
 
-func NewParseDriver() ParseDriver {
-	return ParseDriver{fileProvider: OSFileProvider{}}
+func NewParseDriver(debug bool) ParseDriver {
+	return ParseDriver{debug: debug, fileProvider: OSFileProvider{}}
 }
 
 func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
@@ -71,7 +73,13 @@ func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
 			contents := d.fileProvider.ProvideContents(nextFileRef)
 			parser := parser.NewParser(nextFileRef.specifiedPath,
 				contents, d.descriptor)
+			parser.SetDebugMode(d.debug)
 			parser.Parse()
+
+			if d.debug {
+				fmt.Println(parser.GetParseTree())
+			}
+
 			if !parser.OK() {
 				d.err = fmt.Errorf("\nError while parsing %s: \n%s\n",
 					nextFileRef, parser.Error().Error())
@@ -99,8 +107,11 @@ func writeSerializedMojomDescriptor(data []byte) {
 }
 
 func main() {
-	parserDriver := NewParseDriver()
-	result := parserDriver.ParseFiles(os.Args[1:])
+	debug := flag.Bool("debug", false, "Generate and print the parse tree.")
+	flag.Parse()
+
+	parserDriver := NewParseDriver(*debug)
+	result := parserDriver.ParseFiles(flag.Args())
 	if result.Err != nil {
 		fmt.Printf("%s", result.Err.Error())
 	}
