@@ -351,6 +351,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 		p.consumeNextToken() // consume the IMPORT token.
 
 		fileName := p.readStringLiteral()
+		p.attachToken()
 		if !p.OK() {
 			return
 		}
@@ -1498,14 +1499,14 @@ func (p *Parser) readName() (name string) {
 }
 
 // Returns -1 if there was no specified ordinal.
-func (p *Parser) readOrdinal() (ordinalValue int) {
+func (p *Parser) readOrdinal() (ordinalValue int64) {
 	if !p.OK() {
 		return
 	}
 
 	ordinalValue = -1
 	if p.tryMatch(lexer.ORDINAL) {
-		x, err := strconv.Atoi(p.lastConsumed.Text[1:])
+		x, err := strconv.ParseInt(p.lastConsumed.Text[1:], 10, 64)
 		if err != nil || x < 0 {
 			panic("Lexer returned an ORDINAL that was not parsable as a non-negative integer.")
 		}

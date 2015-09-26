@@ -1,8 +1,10 @@
 package mojom
 
 import (
+	"errors"
 	"fmt"
 	"github.com/rudominer/mojom_parser/lexer"
+	"math"
 )
 
 // User-Defined Type Kinds
@@ -90,7 +92,7 @@ func (b UserDefinedTypeBase) String() string {
 	if b.attributes != nil {
 		attributeString = fmt.Sprintf("%s", b.attributes.List)
 	}
-	return fmt.Sprintf("%s%s", attributeString, b.simpleName)
+	return fmt.Sprintf("(%s)%s%s", b.typeKey, attributeString, b.simpleName)
 }
 
 func (b *UserDefinedTypeBase) TypeKey() string {
@@ -215,7 +217,7 @@ type StructField struct {
 }
 
 func NewStructField(fieldType TypeRef, name string,
-	ordinal int, attributes *Attributes, defaultValue ValueRef,
+	ordinal int64, attributes *Attributes, defaultValue ValueRef,
 	defaultValueFirstToken *lexer.Token) *StructField {
 	field := StructField{fieldType: fieldType, defaultValue: defaultValue,
 		defaultValueFirstToken: defaultValueFirstToken}
@@ -254,14 +256,14 @@ type MojomInterface struct {
 	UserDefinedTypeBase
 	DeclarationContainer
 
-	methodsByOrdinal map[int]*MojomMethod
+	methodsByOrdinal map[uint32]*MojomMethod
 
 	methodsByName map[string]*MojomMethod
 }
 
 func NewMojomInterface(simpleName string, attributes *Attributes) *MojomInterface {
 	mojomInterface := new(MojomInterface)
-	mojomInterface.methodsByOrdinal = make(map[int]*MojomMethod)
+	mojomInterface.methodsByOrdinal = make(map[uint32]*MojomMethod)
 	mojomInterface.methodsByName = make(map[string]*MojomMethod)
 	mojomInterface.Init(simpleName, mojomInterface, attributes)
 	return mojomInterface
@@ -281,8 +283,44 @@ func (MojomInterface) Kind() UserDefinedTypeKind {
 	return INTERFACE_TYPE
 }
 
-func (m *MojomInterface) ComputeMethodOrdinals() {
-	// TODO
+var ErrOrdinalRange = errors.New("ordinal value out of range")
+var ErrOrdinalDuplicate = errors.New("duplicate ordinal value")
+
+type MethodOrdinalError struct {
+	Ord            int64        // The attemted ordinal
+	Method         *MojomMethod // The method with the attempted ordinal
+	ExistingMethod *MojomMethod // Used if Err == ErrOrdinalDuplicate
+	Err            error        // the type of error (ErrOrdinalRange, ErrOrdinalDuplicate)
+}
+
+// Make MethodOrdinalError implement error.
+func (e *MethodOrdinalError) Error() string {
+	switch e.Err {
+	case ErrOrdinalRange:
+	case ErrOrdinalDuplicate:
+	}
+	return ""
+}
+
+func (m *MojomInterface) ComputeMethodOrdinals() error {
+	nextOrdinal := uint32(0)
+	for _, method := range m.methodsByName {
+		if method.declaredOrdinal < 0 {
+			method.ordinal = nextOrdinal
+			nextOrdinal = method.ordinal + 1
+		} else {
+			if method.declaredOrdinal >= math.MaxUint32 {
+				return &MethodOrdinalError{Ord: method.declaredOrdinal, Method: method, Err: ErrOrdinalRange}
+			}
+			method.ordinal = uint32(method.declaredOrdinal)
+		}
+		if existingMethod, ok := m.methodsByOrdinal[method.ordinal]; ok {
+			return &MethodOrdinalError{Ord: int64(method.ordinal), Method: method,
+				ExistingMethod: existingMethod, Err: ErrOrdinalDuplicate}
+		}
+		m.methodsByOrdinal[method.ordinal] = method
+	}
+	return nil
 }
 
 func (m *MojomInterface) String() string {
@@ -302,12 +340,18 @@ func (m *MojomInterface) String() string {
 type MojomMethod struct {
 	VariableDeclarationData
 
+	// The ordinal field differs from the declaredOrdinal field
+	// in VariableDeclarationData because every method eventually gets
+	// assigned an ordinal whereas the declaredOrdinal is only set
+	// if the user explicitly sets it in the .mojom file.
+	ordinal uint32
+
 	parameters *MojomStruct
 
 	responseParameters *MojomStruct
 }
 
-func NewMojomMethod(name string, ordinalValue int, params,
+func NewMojomMethod(name string, ordinalValue int64, params,
 	responseParams *MojomStruct) *MojomMethod {
 	mojomMethod := new(MojomMethod)
 	mojomMethod.InitVariableDeclarationData(name, nil, ordinalValue)
@@ -343,7 +387,7 @@ func NewMojomUnion(simpleName string, attributes *Attributes) *MojomUnion {
 
 // Adds a UnionField to this Union
 func (u *MojomUnion) AddField(fieldType TypeRef, fieldName string,
-	tag int, attributes *Attributes) {
+	tag int64, attributes *Attributes) {
 	field := UnionField{fieldType: fieldType}
 	field.InitVariableDeclarationData(fieldName, attributes, tag)
 	u.fields = append(u.fields, field)
@@ -599,13 +643,16 @@ func (constant *UserDefinedConstant) AsEnumValue() *EnumValue {
 /////////////////////////////////////////////////////////////
 
 type VariableDeclarationData struct {
-	simpleName      string
-	attributes      *Attributes
-	declaredOrdinal int
+	simpleName string
+	attributes *Attributes
+
+	// We use int64 here because valid ordinals are uint32 and we want to
+	// be able to represent an unset value as -1.
+	declaredOrdinal int64
 }
 
 func (v *VariableDeclarationData) InitVariableDeclarationData(simpleName string,
-	attributes *Attributes, ordinal int) {
+	attributes *Attributes, ordinal int64) {
 	v.simpleName = simpleName
 	v.attributes = attributes
 	v.declaredOrdinal = ordinal

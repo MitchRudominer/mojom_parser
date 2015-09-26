@@ -435,7 +435,7 @@ func (m MapTypeRef) String() string {
 	if m.nullable {
 		nullableSpecifier = "?"
 	}
-	return fmt.Sprintf("map<%s%s>%s", m.keyType, m.valueType, nullableSpecifier)
+	return fmt.Sprintf("map<%s, %s>%s", m.keyType, m.valueType, nullableSpecifier)
 }
 
 /////////////////////////////////////////////////////////////
@@ -511,7 +511,11 @@ func (t UserTypeRef) String() string {
 	if t.nullable {
 		nullable = "?"
 	}
-	return fmt.Sprintf("%s%s%s", t.identifier, interfaceRequest, nullable)
+	resolvedKey := ""
+	if t.resolvedType != nil {
+		resolvedKey = t.resolvedType.TypeKey()
+	}
+	return fmt.Sprintf("(%s)%s%s%s", resolvedKey, t.identifier, interfaceRequest, nullable)
 }
 
 func (t UserTypeRef) LongString() string {

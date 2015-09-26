@@ -105,9 +105,10 @@ func (f *MojomFile) AddConstant(declaredConst *UserDefinedConstant) *DuplicateNa
 /// //////////////////////////////////////////////////////////////
 
 type MojomDescriptor struct {
-	typesByKey  map[string]UserDefinedType
-	valuesByKey map[string]UserDefinedValue
-	mojomFiles  []*MojomFile
+	typesByKey       map[string]UserDefinedType
+	valuesByKey      map[string]UserDefinedValue
+	mojomFiles       []*MojomFile
+	mojomFilesByName map[string]*MojomFile
 
 	scopesByName              map[string]*Scope
 	unresolvedTypeReferences  []*UserTypeRef
@@ -120,6 +121,7 @@ func NewMojomDescriptor() *MojomDescriptor {
 	descriptor.typesByKey = make(map[string]UserDefinedType)
 	descriptor.valuesByKey = make(map[string]UserDefinedValue)
 	descriptor.mojomFiles = make([]*MojomFile, 0)
+	descriptor.mojomFilesByName = make(map[string]*MojomFile)
 	descriptor.scopesByName = make(map[string]*Scope)
 	// The global namespace scope.
 	descriptor.scopesByName[""] = NewAbstractModuleScope("", descriptor)
@@ -147,7 +149,8 @@ func (d *MojomDescriptor) Serialize() []byte {
 }
 
 func (d *MojomDescriptor) ContainsFile(fileName string) bool {
-	return false
+	_, ok := d.mojomFilesByName[fileName]
+	return ok
 }
 
 func (d *MojomDescriptor) SprintMojomFiles() (s string) {
@@ -195,6 +198,10 @@ func (d *MojomDescriptor) AddMojomFile(fileName string) *MojomFile {
 	mojomFile := NewMojomFile(fileName, d)
 	mojomFile.Descriptor = d
 	d.mojomFiles = append(d.mojomFiles, mojomFile)
+	if _, ok := d.mojomFilesByName[mojomFile.FileName]; ok {
+		panic(fmt.Sprintf("The file %v has already been processed.", mojomFile.FileName))
+	}
+	d.mojomFilesByName[mojomFile.FileName] = mojomFile
 	return mojomFile
 }
 
@@ -210,8 +217,19 @@ func (d *MojomDescriptor) RegisterUnresolvedValueReference(valueReference *UserV
 /// Miscelleneous utilities
 /// //////////////////////////////////////////////////////////////////
 
-// This method also computes and stores the type key
 func computeTypeKey(fullyQualifiedName string) (typeKey string) {
-	// TODO(rudominer) This should be the SHA1 hash of fqn instead.
-	return fullyQualifiedName
+	if typeKey, ok := fqnToTypeKey[fullyQualifiedName]; ok == true {
+		return typeKey
+	}
+	typeKey = fmt.Sprintf("%d", nextKey)
+	nextKey++
+	fqnToTypeKey[fullyQualifiedName] = typeKey
+	return
+}
+
+var fqnToTypeKey map[string]string
+var nextKey int
+
+func init() {
+	fqnToTypeKey = make(map[string]string)
 }
