@@ -52,6 +52,7 @@ type Stringable interface {
 // A LiteralType is a ConcreteType.
 type LiteralType interface {
 	ConcreteType
+	AllowedAsEnumValueInitializer() bool
 }
 
 // The ConcreteTypes are the LiteralTypes plus enum types. These are the
@@ -62,7 +63,6 @@ type LiteralType interface {
 type ConcreteType interface {
 	Stringable
 	ConcreteTypeKind() TypeKind
-	AllowedAsEnumValueInitializer() (ok bool)
 }
 
 // A TypeRef is a reference to any kind of type. An instance of TypeRef
@@ -125,14 +125,6 @@ func (SimpleType) Nullable() bool {
 
 // From interface TypeRef
 func (SimpleType) MarkUsedAsMapKey() bool {
-	return true
-}
-
-// From interface TypeRef
-func (t SimpleType) MarkUsedAsEnumValueInitializer() bool {
-	if t == BOOL || t == DOUBLE || t == FLOAT {
-		return false
-	}
 	return true
 }
 
@@ -210,11 +202,6 @@ func (StringType) MarkUsedAsMapKey() bool {
 }
 
 // From interface TypeRef
-func (StringType) MarkUsedAsEnumValueInitializer() bool {
-	return false
-}
-
-// From interface TypeRef
 func (StringType) MarkUsedAsConstantType() bool {
 	return true
 }
@@ -256,10 +243,6 @@ func (HandleType) TypeRefKind() TypeKind {
 }
 
 func (HandleType) MarkUsedAsMapKey() bool {
-	return false
-}
-
-func (HandleType) MarkUsedAsEnumValueInitializer() bool {
 	return false
 }
 
@@ -368,10 +351,6 @@ func (ArrayTypeRef) MarkUsedAsMapKey() bool {
 	return false
 }
 
-func (ArrayTypeRef) MarkUsedAsEnumValueInitializer() bool {
-	return false
-}
-
 func (ArrayTypeRef) MarkUsedAsConstantType() bool {
 	return false
 }
@@ -418,10 +397,6 @@ func (MapTypeRef) MarkUsedAsMapKey() bool {
 	return false
 }
 
-func (MapTypeRef) MarkUsedAsEnumValueInitializer() bool {
-	return false
-}
-
 func (MapTypeRef) MarkUsedAsConstantType() bool {
 	return false
 }
@@ -458,9 +433,8 @@ type UserTypeRef struct {
 
 	token lexer.Token
 
-	usedAsMapKey               bool
-	usedAsConstantType         bool
-	usedAsEnumValueInitializer bool
+	usedAsMapKey       bool
+	usedAsConstantType bool
 
 	resolvedType UserDefinedType
 }
@@ -490,11 +464,6 @@ func (t *UserTypeRef) MarkUsedAsMapKey() bool {
 	return true
 }
 
-func (t *UserTypeRef) MarkUsedAsEnumValueInitializer() bool {
-	t.usedAsEnumValueInitializer = true
-	return true
-}
-
 func (t *UserTypeRef) MarkUsedAsConstantType() bool {
 	t.usedAsConstantType = true
 	return true
@@ -502,6 +471,26 @@ func (t *UserTypeRef) MarkUsedAsConstantType() bool {
 
 func (t *UserTypeRef) Nullable() bool {
 	return t.nullable
+}
+
+func (ref *UserTypeRef) validateAfterResolution() error {
+	if ref.resolvedType.Kind() != ENUM_TYPE {
+		// A type ref has resolved to a non-enum type. Make sure it is not
+		// being used as either a map key or a constant declaration.
+		if ref.usedAsMapKey {
+			return fmt.Errorf("The type %s at %s is not allowed as the key "+
+				"type of a map. Only simple types, strings and enum types may "+
+				"be map keys.",
+				ref.identifier, ref.token.LongLocationString())
+		}
+		if ref.usedAsConstantType {
+			return fmt.Errorf("The type %s at %s is not allowed as the type "+
+				"of a declared constant. Only simple types, strings and enum "+
+				"types may be the types of constants.",
+				ref.identifier, ref.token.LongLocationString())
+		}
+	}
+	return nil
 }
 
 func (t *UserTypeRef) String() string {
@@ -535,6 +524,7 @@ func (t *UserTypeRef) LongString() string {
 // an enum value.  A ValueRef is either a LiteralValue or a UserValueRef.
 type ValueRef interface {
 	ResolvedValue() ConcreteValue
+	MarkUsedAsEnumValueInitializer() bool
 }
 
 // A reference to a user-defined value. That is, a reference to an EnumValue or
@@ -550,6 +540,8 @@ type UserValueRef struct {
 
 	// The identifier as it appears in the text.
 	identifier string
+
+	usedAsEnumValueInitializer bool
 
 	// A value specification always occurs in the context of some
 	// assignment. This may be the assignment of a default value
@@ -575,6 +567,20 @@ type UserValueRef struct {
 
 func (v UserValueRef) ResolvedValue() ConcreteValue {
 	return v.resolvedConcreteValue
+}
+
+func (v *UserValueRef) MarkUsedAsEnumValueInitializer() bool {
+	v.usedAsEnumValueInitializer = true
+	return true
+}
+
+func (v *UserValueRef) validateAfterResolution() error {
+	// TODO(rudominer) This method should check the following
+	// - If |usedAsEnumValueInitializer| is true then |resolvedDeclaredValue|
+	// must be an EnumValue
+	// - The |resolvedConcreteValue| must have a type that is assignment
+	// compatible with |assigneeType|.
+	return nil
 }
 
 func (v *UserValueRef) String() string {
@@ -648,6 +654,10 @@ func (lv LiteralValue) String() string {
 	default:
 		return fmt.Sprintf("%v", lv.value)
 	}
+}
+
+func (lv LiteralValue) MarkUsedAsEnumValueInitializer() bool {
+	return lv.valueType.AllowedAsEnumValueInitializer()
 }
 
 func (lv LiteralValue) LiteralValueType() LiteralType {

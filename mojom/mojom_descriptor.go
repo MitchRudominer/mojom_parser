@@ -231,21 +231,12 @@ func (d *MojomDescriptor) Resolve() error {
 				unresolvedTypeReferences[numUnresolvedTypeReferences] = ref
 				numUnresolvedTypeReferences++
 			} else {
-				if ref.resolvedType.Kind() != ENUM_TYPE {
-					// A type ref has resolved to a non-enum. Make sure it is not
-					// being used as either a map key or a constant declaration.
-					if ref.usedAsMapKey {
-						return fmt.Errorf("The type %s at %s is not allowed as the key "+
-							"type of a map. Only simple types, strings and enum types may "+
-							"be map keys.",
-							ref.identifier, ref.token.LongLocationString())
-					}
-					if ref.usedAsConstantType {
-						return fmt.Errorf("The type %s at %s is not allowed as the type "+
-							"of a declared constant. Only simple types, strings and enum "+
-							"types may be the types of constants.",
-							ref.identifier, ref.token.LongLocationString())
-					}
+				if err := ref.validateAfterResolution(); ref != nil {
+					// The type reference was successfully resolved but
+					// after doing so we discovered that the reference
+					// was used in an inappropriate way given the resolved
+					// type.
+					return err
 				}
 			}
 		}
@@ -259,6 +250,14 @@ func (d *MojomDescriptor) Resolve() error {
 			if !d.resolveValueRef(ref) {
 				unresolvedValueReferences[numUnresolvedValueReferences] = ref
 				numUnresolvedValueReferences++
+			} else {
+				if err := ref.validateAfterResolution(); err != nil {
+					// The value reference was successfully resolved but
+					// after doing so we discovered that the reference
+					// was used in an inappropriate way given the type
+					// of the resolved value.
+					return err
+				}
 			}
 		}
 	}

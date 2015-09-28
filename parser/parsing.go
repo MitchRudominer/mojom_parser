@@ -861,12 +861,12 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 			name := p.readName()
 			p.attachToken()
 			nameToken := p.lastConsumed
-			var valueSpec mojom.ValueRef
+			var valueRef mojom.ValueRef
 			if p.tryMatch(lexer.EQUALS) {
-				valueSpec = p.parseEnumValueInitializer(mojomEnum)
+				valueRef = p.parseEnumValueInitializer(mojomEnum)
 			}
 			dupeMessage = p.duplicateNameMessage(
-				mojomEnum.AddEnumValue(name, valueSpec, attributes), nameToken)
+				mojomEnum.AddEnumValue(name, valueRef, attributes), nameToken)
 			trailingCommaFound = p.tryMatch(lexer.COMMA)
 		case lexer.RBRACE:
 			rbraceFound = true
@@ -911,20 +911,20 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 	// the assignee is implicit in the scope.
 	enumType := mojom.NewResolvedUserTypeRef(mojoEnum.FullyQualifiedName(), mojoEnum)
 
-	valueSpec := p.parseValue(enumType)
-	if valueSpec == nil {
+	valueToken := p.peekNextToken("Parsing an enum value initializer type.")
+	valueRef := p.parseValue(enumType)
+	if valueRef == nil {
 		return nil
 	}
-	concreteValue := valueSpec.ResolvedValue()
-	if concreteValue != nil && !concreteValue.ValueType().AllowedAsEnumValueInitializer() {
-		token := p.lastConsumed
+	if !valueRef.MarkUsedAsEnumValueInitializer() {
 		message := fmt.Sprintf("Illegal value: %s at %s. An enum value may "+
-			"only be initialized by an integer or another enum value.", token,
-			token.LongLocationString())
+			"only be initialized by an integer or another enum value.", valueToken,
+			valueToken.LongLocationString())
 		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return nil
 	}
-	return valueSpec
+
+	return valueRef
 }
 
 // CONSTANT_DECL     -> const CONST_OK_TYPE name equals CONST_VALUE_REF semi
