@@ -212,7 +212,7 @@ func (scope *Scope) LookupType(name string) UserDefinedType {
 	}
 	return scope.parentScope.LookupType(name)
 }
-func (scope *Scope) LookupValue(name string) UserDefinedValue {
+func (scope *Scope) LookupValue(name string, assigneeType TypeRef) UserDefinedValue {
 	if userDefinedValue, ok := scope.valuesByName[name]; ok {
 
 		return userDefinedValue
@@ -220,5 +220,22 @@ func (scope *Scope) LookupValue(name string) UserDefinedValue {
 	if scope.parentScope == nil {
 		return nil
 	}
-	return scope.parentScope.LookupValue(name)
+	resolvedValue := scope.parentScope.LookupValue(name, nil)
+
+	// If we have been unable to resolve a value reference we try a different strategy.
+	// If the assigneeType is an enum and the name is a simple name then we will try to
+	// interpret the name as the name of an enum value from the assigneeType enum.
+	if resolvedValue == nil && assigneeType != nil && assigneeType.TypeRefKind() == USER_DEFINED_TYPE {
+		userTypeRef, ok := assigneeType.(*UserTypeRef)
+		if !ok {
+			panic(fmt.Sprintf("Type of assigneeType is %T", assigneeType))
+		}
+		if userTypeRef.ResolvedType() != nil && userTypeRef.ResolvedType().Kind() == ENUM_TYPE {
+			if !strings.ContainsRune(name, '.') {
+				name = userTypeRef.ResolvedType().FullyQualifiedName() + "." + name
+				return scope.LookupValue(name, nil)
+			}
+		}
+	}
+	return resolvedValue
 }

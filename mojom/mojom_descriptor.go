@@ -4,16 +4,22 @@ import (
 	"fmt"
 )
 
+// This file contains the types MojomFile and MojomDescriptor. These are the
+// structures that are generated during parsing and then serialized and
+// passed on to the backend of the Mojom Compiler.
+
 ///////////////////////////////////////////////////////////////////////
 /// Type MojomFile
 /// //////////////////////////////////////////////////////////////////
 
+// A MojomFile represents the result of parsing a single .mojom file.
 type MojomFile struct {
+	// The associated MojomDescriptor
 	Descriptor *MojomDescriptor
 
 	// The |FileName| is (derived from) the file name of the corresponding
 	// .mojom file. It is the unique identifier for this module within the
-	// MojomFileGraph
+	// |mojomFilesByName| field of |Descriptor|
 	FileName string
 
 	// The module namespace is the identifier declared via the "module"
@@ -24,15 +30,17 @@ type MojomFile struct {
 	Attributes *Attributes
 
 	// The list of other MojomFiles imported by this one. The elements
-	// of the array are the |module_name|s and the associated module may
-	// be retrieved from the  MojomFileGraph.
+	// of the array are the |FileName|s. The corresponding MojomFile may
+	// be obtained from the |mojomFilesByName| field of |Descriptor|.
 	Imports []string
 
+	// The lexical scope corresponding to this file.
 	FileScope *Scope
 
-	// These are lists of *top-level* types defined in the file. They do
-	// not include enums and constants defined within structs, unions
-	// and interfaces.
+	// These are lists of *top-level* types  and constants defined in the file;
+	// they do not include enums and constants defined within structs
+	// and interfaces. The contained enums and constant may be found in the
+	// |Enums| and |Constants|  fields of their containing object.
 	Interfaces []*MojomInterface
 	Structs    []*MojomStruct
 	Unions     []*MojomUnion
@@ -62,6 +70,7 @@ func (f *MojomFile) String() string {
 	s += fmt.Sprintf("interfaces: %s\n", f.Interfaces)
 	s += fmt.Sprintf("structs: %s\n", f.Structs)
 	s += fmt.Sprintf("enums: %s\n", f.Enums)
+	s += fmt.Sprintf("constants: %s\n", f.Constants)
 	return s
 }
 
@@ -110,6 +119,7 @@ type MojomDescriptor struct {
 	mojomFiles       []*MojomFile
 	mojomFilesByName map[string]*MojomFile
 
+	// Abstract module scopes.
 	scopesByName              map[string]*Scope
 	unresolvedTypeReferences  []*UserTypeRef
 	unresolvedValueReferences []*UserValueRef

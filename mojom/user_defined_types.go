@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/rudominer/mojom_parser/lexer"
 	"math"
+	"strings"
 )
 
 // User-Defined Type Kinds
@@ -118,17 +119,21 @@ func (b UserDefinedTypeBase) Identical(other UserDefinedType) bool {
 // Some user-defined types, namely interfaces and structs, may act as
 // namespaced scopes for declarations of constants and enums.
 type DeclarationContainer struct {
-	containedDeclarations *Scope
+	containedScope *Scope
+	Enums          []*MojomEnum
+	Constants      []*UserDefinedConstant
 }
 
 // Adds an enum to a this type, which must be an interface or struct.
-func (c DeclarationContainer) AddEnum(mojomEnum *MojomEnum) *DuplicateNameError {
-	return mojomEnum.RegisterInScope(c.containedDeclarations)
+func (c *DeclarationContainer) AddEnum(mojomEnum *MojomEnum) *DuplicateNameError {
+	c.Enums = append(c.Enums, mojomEnum)
+	return mojomEnum.RegisterInScope(c.containedScope)
 }
 
 // Adds a declared constant to a this type, which must be an interface or struct.
-func (c DeclarationContainer) AddConstant(declaredConst *UserDefinedConstant) *DuplicateNameError {
-	return declaredConst.RegisterInScope(c.containedDeclarations)
+func (c *DeclarationContainer) AddConstant(declaredConst *UserDefinedConstant) *DuplicateNameError {
+	c.Constants = append(c.Constants, declaredConst)
+	return declaredConst.RegisterInScope(c.containedScope)
 }
 
 /////////////////////////////////////////////////////////////
@@ -149,8 +154,8 @@ func NewMojomStruct(simpleName string, attributes *Attributes) *MojomStruct {
 }
 
 func (s *MojomStruct) InitAsScope(parentScope *Scope) *Scope {
-	s.containedDeclarations = NewLexicalScope(SCOPE_STRUCT, parentScope, s.simpleName, parentScope.file)
-	return s.containedDeclarations
+	s.containedScope = NewLexicalScope(SCOPE_STRUCT, parentScope, s.simpleName, parentScope.file)
+	return s.containedScope
 }
 
 func (s *MojomStruct) AddField(field *StructField) {
@@ -177,6 +182,16 @@ func (m MojomStruct) String() string {
 	s += "     ------\n"
 	for _, field := range m.fields {
 		s += fmt.Sprintf("     %s\n", field)
+	}
+	s += "     Enums\n"
+	s += "     ------\n"
+	for _, enum := range m.Enums {
+		s += fmt.Sprintf(enum.toString(5))
+	}
+	s += "     Constants\n"
+	s += "     --------"
+	for _, constant := range m.Constants {
+		s += fmt.Sprintf(constant.toString(5))
 	}
 	return s
 }
@@ -270,9 +285,9 @@ func NewMojomInterface(simpleName string, attributes *Attributes) *MojomInterfac
 }
 
 func (i *MojomInterface) InitAsScope(parentScope *Scope) *Scope {
-	i.containedDeclarations = NewLexicalScope(SCOPE_INTERFACE, parentScope,
+	i.containedScope = NewLexicalScope(SCOPE_INTERFACE, parentScope,
 		i.simpleName, parentScope.file)
-	return i.containedDeclarations
+	return i.containedScope
 }
 
 func (i *MojomInterface) AddMethod(method *MojomMethod) {
@@ -414,9 +429,9 @@ type UnionField struct {
 /////////////////////////////////////////////////////////////
 type MojomEnum struct {
 	UserDefinedTypeBase
-	DeclarationContainer
 
-	values []*EnumValue
+	values         []*EnumValue
+	scopeForValues *Scope
 }
 
 func NewMojomEnum(simpleName string, attributes *Attributes) *MojomEnum {
@@ -440,9 +455,9 @@ func (MojomEnum) Kind() UserDefinedTypeKind {
 }
 
 func (e *MojomEnum) InitAsScope(parentScope *Scope) *Scope {
-	e.containedDeclarations = NewLexicalScope(SCOPE_ENUM, parentScope,
+	e.scopeForValues = NewLexicalScope(SCOPE_ENUM, parentScope,
 		e.simpleName, parentScope.file)
-	return e.containedDeclarations
+	return e.scopeForValues
 }
 
 // Adds an EnumValue to this enum
@@ -452,7 +467,7 @@ func (e *MojomEnum) AddEnumValue(name string, valueRef ValueRef,
 	enumValue.Init(name, ENUM_VALUE, enumValue, valueRef, attributes)
 	e.values = append(e.values, enumValue)
 	enumValue.enumType = e
-	return enumValue.RegisterInScope(e.containedDeclarations)
+	return enumValue.RegisterInScope(e.scopeForValues)
 }
 
 func (e *MojomEnum) ComputeEnumValues() {
@@ -460,11 +475,17 @@ func (e *MojomEnum) ComputeEnumValues() {
 
 func (e *MojomEnum) String() string {
 	s := fmt.Sprintf("\n---------enum--------------\n")
-	s += fmt.Sprintf("%s\n", e.UserDefinedTypeBase)
-	s += "     Values\n"
-	s += "     ------\n"
+	s += e.toString(0)
+	return s
+}
+
+func (e *MojomEnum) toString(indentLevel int) string {
+	indent := strings.Repeat(" ", indentLevel)
+	s := fmt.Sprintf("%s%s\n", indent, e.UserDefinedTypeBase)
+	s += indent + "     Values\n"
+	s += indent + "     ------\n"
 	for _, value := range e.values {
-		s += fmt.Sprintf("     %s", value)
+		s += fmt.Sprintf(indent+"     %s", value)
 	}
 	return s
 }
@@ -525,6 +546,7 @@ type UserDefinedValue interface {
 	FullyQualifiedName() string
 	Kind() UserDefinedValueKind
 	Scope() *Scope
+	ValueKey() string
 	AsDeclaredConstant() *UserDefinedConstant
 	AsEnumValue() *EnumValue
 	RegisterInScope(scope *Scope) *DuplicateNameError
@@ -586,14 +608,11 @@ func (b UserDefinedValueBase) String() string {
 	if b.attributes != nil {
 		attributeString = fmt.Sprintf("%s", b.attributes.List)
 	}
-	concreteValueString := ""
+	valueRefString := ""
 	if b.valueRef != nil {
-		concreteValue := b.valueRef.ResolvedValue()
-		if concreteValue != nil {
-			concreteValueString = fmt.Sprintf(" = %s", concreteValue)
-		}
+		valueRefString = fmt.Sprintf(" = %s", b.valueRef)
 	}
-	return fmt.Sprintf("%s%s%s", attributeString, b.simpleName, concreteValueString)
+	return fmt.Sprintf("(%s)%s%s%s", b.valueKey, attributeString, b.simpleName, valueRefString)
 }
 
 func (b *UserDefinedValueBase) Kind() UserDefinedValueKind {
@@ -612,6 +631,10 @@ func (b UserDefinedValueBase) Scope() *Scope {
 	return b.scope
 }
 
+func (b UserDefinedValueBase) ValueKey() string {
+	return b.valueKey
+}
+
 /////////////////////////////////////////////////////////////
 //Declared Constants
 /////////////////////////////////////////////////////////////
@@ -620,14 +643,24 @@ func (b UserDefinedValueBase) Scope() *Scope {
 type UserDefinedConstant struct {
 	UserDefinedValueBase
 
-	valueType ConcreteType
+	declaredType TypeRef
 }
 
 func NewUserDefinedConstant(name string, declaredType TypeRef, value ValueRef,
 	attributes *Attributes) *UserDefinedConstant {
 	constant := new(UserDefinedConstant)
 	constant.Init(name, DECLARED_CONSTANT, constant, value, attributes)
+	constant.declaredType = declaredType
 	return constant
+}
+
+func (b *UserDefinedConstant) String() string {
+	return b.toString(0)
+}
+
+func (b *UserDefinedConstant) toString(indentLevel int) string {
+	indent := strings.Repeat(" ", indentLevel)
+	return fmt.Sprintf("\n%sconst %s %s", indent, b.declaredType, b.UserDefinedValueBase)
 }
 
 func (constant *UserDefinedConstant) AsDeclaredConstant() *UserDefinedConstant {

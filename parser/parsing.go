@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-// The code in this file implements a recursive-descent, predictive parser
+// The code in this file implements  recursive-descent, predictive parsing
 // for the context-free grammar listed below.
 //
 // The grammar is similar to the grammar in the document "Mojom Language
@@ -171,7 +171,7 @@ func (p *Parser) parseMojomFile() bool {
 
 	if len(moduleIdentifier) > 0 && importStatementsExist && initialAttributes != nil {
 		message := "Attributes are not allowed before an import statement."
-		p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+		p.err = &ParseError{E_BAD_ATTRIBUTE_LOCATION, message}
 		return false
 	}
 
@@ -182,7 +182,7 @@ func (p *Parser) parseMojomFile() bool {
 	if initialAttributes != nil {
 		if attributes != nil {
 			message := "File starts with two sets of attributes."
-			p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+			p.err = &ParseError{E_BAD_ATTRIBUTE_LOCATION, message}
 			return false
 		} else {
 			attributes = initialAttributes
@@ -198,7 +198,7 @@ func (p *Parser) parseMojomFile() bool {
 		if p.checkEOF() {
 			if attributes != nil {
 				message := "File ends with extranesous attributes."
-				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+				p.err = &ParseError{E_BAD_ATTRIBUTE_LOCATION, message}
 			}
 			return false
 		}
@@ -229,12 +229,12 @@ func (p *Parser) parseMojomFile() bool {
 			message := fmt.Sprintf("Unexpected token at %s: %s. "+
 				"Expecting interface, struct, union, enum or const.",
 				nextToken.LongLocationString(), nextToken)
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return false
 		}
 
 		if p.OK() && len(dupeMessage) > 0 {
-			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
+			p.err = &ParseError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
 	}
@@ -299,7 +299,7 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 					nextToken.LongLocationString(), nextToken)
 
 			}
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return
 		}
 	}
@@ -326,7 +326,7 @@ func (p *Parser) parseModuleDecl() (moduleIdentifier string) {
 		message := fmt.Sprintf("Unexpected token at %s: %s. "+
 			"Expecting module, import, interface, struct, union, enum or constant.",
 			nextToken.LongLocationString(), nextToken)
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return
 	}
 
@@ -371,7 +371,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 	switch nextToken.Kind {
 	case lexer.MODULE:
 		message := "The module declaration must come before the import statements."
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return
 	case lexer.INTERFACE, lexer.STRUCT, lexer.UNION, lexer.ENUM, lexer.CONST:
 		return
@@ -379,7 +379,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 		message := fmt.Sprintf("Unexpected token at %s: %s. "+
 			"Expecting import, interface, struct, union, enum or constant.",
 			nextToken.LongLocationString(), nextToken)
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return
 	}
 }
@@ -460,18 +460,18 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 			rbraceFound = true
 			if attributes != nil {
 				message := "Interface body ends with extranesous attributes."
-				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+				p.err = &ParseError{E_BAD_ATTRIBUTE_LOCATION, message}
 			}
 			break
 		default:
 			message := fmt.Sprintf("Unexpected token within interface body at %s: %s. "+
 				"Expecting union, enum, const or an identifier",
 				nextToken.LongLocationString(), nextToken)
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return false
 		}
 		if p.OK() && len(dupeMessage) > 0 {
-			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
+			p.err = &ParseError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
 	}
@@ -575,7 +575,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 		default:
 			message := fmt.Sprintf("Unexpected token within method parameters at %s: %s. "+
 				"Expecting comma or ).", nextToken.LongLocationString(), nextToken)
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return nil
 		}
 	}
@@ -659,18 +659,18 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 			rbraceFound = true
 			if attributes != nil {
 				message := "Struct body ends with extranesous attributes."
-				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+				p.err = &ParseError{E_BAD_ATTRIBUTE_LOCATION, message}
 			}
 			break
 		default:
 			message := fmt.Sprintf("Unexpected token within struct body at %s: %s. "+
 				"Expecting field, enum or constant declaration.",
 				nextToken.LongLocationString(), nextToken)
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return false
 		}
 		if p.OK() && len(dupeMessage) > 0 {
-			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
+			p.err = &ParseError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
 	}
@@ -775,14 +775,14 @@ func (p *Parser) parseUnionBody(union *mojom.MojomUnion) bool {
 			rbraceFound = true
 			if attributes != nil {
 				message := "Enum body ends with extranesous attributes."
-				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+				p.err = &ParseError{E_BAD_ATTRIBUTE_LOCATION, message}
 			}
 			break
 		default:
 			message := fmt.Sprintf("Unexpected token within union body at %s: %s. "+
 				"Expecting either another union field or }.",
 				nextToken.LongLocationString(), nextToken)
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return false
 		}
 	}
@@ -854,7 +854,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 				message := fmt.Sprintf("Expecting a comma after %s before "+
 					"the next value %s at %s. ", p.lastConsumed, nextToken,
 					nextToken.LongLocationString())
-				p.err = parserError{E_UNEXPECTED_TOKEN, message}
+				p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 				return false
 			}
 			firstValue = false
@@ -872,7 +872,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 			rbraceFound = true
 			if attributes != nil {
 				message := "Enum body ends with extranesous attributes."
-				p.err = parserError{E_BAD_ATTRIBUTE_LOCATION, message}
+				p.err = &ParseError{E_BAD_ATTRIBUTE_LOCATION, message}
 			}
 			break
 		case lexer.COMMA:
@@ -881,11 +881,11 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 			message := fmt.Sprintf("Unexpected token within enum body at %s: %s. "+
 				"Expecting either another enum value or }.",
 				nextToken.LongLocationString(), nextToken)
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return false
 		}
 		if p.OK() && len(dupeMessage) > 0 {
-			p.err = parserError{E_DUPLICATE_DECLARATION, dupeMessage}
+			p.err = &ParseError{E_DUPLICATE_DECLARATION, dupeMessage}
 			return false
 		}
 	}
@@ -921,7 +921,7 @@ func (p *Parser) parseEnumValueInitializer(mojoEnum *mojom.MojomEnum) mojom.Valu
 		message := fmt.Sprintf("Illegal value: %s at %s. An enum value may "+
 			"only be initialized by an integer or another enum value.", token,
 			token.LongLocationString())
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return nil
 	}
 	return valueSpec
@@ -1007,7 +1007,7 @@ func (p *Parser) parseLiteral() mojom.LiteralValue {
 		message := fmt.Sprintf("Unexpected token %s at %s. "+
 			"Expecting a string, numeric or boolean literal.",
 			nextToken, nextToken.LongLocationString())
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return mojom.LiteralValue{}
 	}
 }
@@ -1027,7 +1027,7 @@ func (p *Parser) parseNumberLiteral() mojom.LiteralValue {
 		message := fmt.Sprintf("Unexpected token %s at %s. "+
 			"Expecting a number.", p.lastConsumed,
 			p.lastConsumed.LongLocationString())
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return mojom.LiteralValue{}
 	}
 
@@ -1044,7 +1044,7 @@ func (p *Parser) parseNumberLiteral() mojom.LiteralValue {
 		message := fmt.Sprintf("Unexpected token %s at %s. "+
 			"Expecting a number",
 			nextToken, nextToken.LongLocationString())
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return mojom.LiteralValue{}
 	}
 }
@@ -1061,7 +1061,7 @@ func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 	if firstToken.Kind != lexer.NAME {
 		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting an identifier.",
 			firstToken.LongLocationString(), firstToken)
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return
 	}
 
@@ -1074,7 +1074,7 @@ func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 	}
 	message := fmt.Sprintf("Invalid identifier: %s at %s. Identifier may not end with a dot.",
 		identifier, firstToken.LongLocationString())
-	p.err = parserError{E_UNEXPECTED_TOKEN, message}
+	p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 	return
 }
 
@@ -1142,7 +1142,7 @@ func (p *Parser) tryReadBuiltInType() mojom.TypeRef {
 				token := p.lastSeen
 				message := fmt.Sprintf("Unexpected token at %s: %s. Expecting a type of handle.",
 					token.LongLocationString(), token)
-				p.err = parserError{E_UNEXPECTED_TOKEN, message}
+				p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 				return nil
 			}
 			if p.match(lexer.RANGLE) {
@@ -1150,7 +1150,7 @@ func (p *Parser) tryReadBuiltInType() mojom.TypeRef {
 				if builtInType = mojom.BuiltInType(typeName); builtInType == nil {
 					message := fmt.Sprintf("Unrecognized type of handle at %s: %s.",
 						typeNameToken.LongLocationString(), typeName)
-					p.err = parserError{E_UNEXPECTED_TOKEN, message}
+					p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 					return nil
 				}
 			}
@@ -1166,7 +1166,7 @@ func (p *Parser) tryReadBuiltInType() mojom.TypeRef {
 			message := fmt.Sprintf("The type %s? at %s is invalid because the "+
 				"type %s may not be made nullable.",
 				typeName, typeNameToken.LongLocationString(), typeName)
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return nil
 		}
 	}
@@ -1242,7 +1242,7 @@ func (p *Parser) tryReadMapType() mojom.TypeRef {
 			"type of a map. Only simple types, strings and enum types may "+
 			"be map keys.",
 			keyType, keyToken.LongLocationString())
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return nil
 	}
 
@@ -1311,13 +1311,13 @@ func (p *Parser) readPositiveIntegerLiteral(initialMinus, acceptHex bool,
 			message := fmt.Sprintf("Illegal value %s at %s. Only a decimal "+
 				"integer literal is allowed here. Hexadecimal is not valid.",
 				nextToken.LongLocationString(), nextToken)
-			p.err = parserError{E_UNEXPECTED_TOKEN, message}
+			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return 0, false
 		}
 		if len(intText) < 3 {
 			message := fmt.Sprintf("Invalid hex integer literal"+
 				" '%s' at %s.", intText, nextToken.LongLocationString())
-			p.err = parserError{E_INTEGER_PARSE_ERROR, message}
+			p.err = &ParseError{E_INTEGER_PARSE_ERROR, message}
 			return 0, false
 		}
 		intText = intText[2:]
@@ -1327,7 +1327,7 @@ func (p *Parser) readPositiveIntegerLiteral(initialMinus, acceptHex bool,
 		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting a "+
 			"positive integer literal.",
 			nextToken.LongLocationString(), nextToken)
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return 0, false
 	}
 
@@ -1344,7 +1344,7 @@ func (p *Parser) readPositiveIntegerLiteral(initialMinus, acceptHex bool,
 		panic(fmt.Sprintf("Lexer allowed unparsable integer literal: %s. "+
 			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
 	}
-	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
+	p.err = &ParseError{E_INTEGER_OUT_OF_RANGE, message}
 	return 0, false
 }
 
@@ -1369,7 +1369,7 @@ func (p *Parser) readPositiveFloatLiteral(initialMinus bool) (float64, bool) {
 		panic(fmt.Sprintf("Lexer allowed unparsable float literal: %s. "+
 			"Kind = %s. error=%s.", nextToken.Text, nextToken.Kind, err))
 	}
-	p.err = parserError{E_INTEGER_OUT_OF_RANGE, message}
+	p.err = &ParseError{E_INTEGER_OUT_OF_RANGE, message}
 	return 0, false
 }
 
@@ -1386,7 +1386,7 @@ func (p *Parser) peekNextToken(eofMessage string) (nextToken lexer.Token) {
 	nextToken = p.inputStream.PeekNext()
 	if nextToken.EOF() {
 		errorMessage := "Unexpected end-of-file. " + eofMessage
-		p.err = parserError{E_EOF, errorMessage}
+		p.err = &ParseError{E_EOF, errorMessage}
 	}
 	p.lastSeen = nextToken
 	return
@@ -1423,7 +1423,7 @@ func (p *Parser) match(expectedKind lexer.TokenKind) bool {
 	if nextToken.Kind != expectedKind {
 		message = fmt.Sprintf("Unexpected token at %s: %s. Expecting %s.",
 			nextToken.LongLocationString(), nextToken, expectedKind)
-		p.err = parserError{E_UNEXPECTED_TOKEN, message}
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return false
 	}
 	p.consumeNextToken()
@@ -1454,7 +1454,7 @@ func (p *Parser) matchSemicolonToken(previousToken lexer.Token) bool {
 	}
 	message := fmt.Sprintf("Missing semicolon after %s at %s.",
 		previousToken, previousToken.LongLocationString())
-	p.err = parserError{E_UNEXPECTED_TOKEN, message}
+	p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 	return false
 }
 

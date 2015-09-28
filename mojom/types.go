@@ -559,26 +559,28 @@ type UserValueRef struct {
 	// is compatible with |assigneeType|.
 	assigneeType TypeRef
 
-	// In case the identifier resolves to a UserDefinedConstant this is a
-	// pointer to it.
-	resolvedConstant *UserDefinedConstant
+	// The user-defined constant or enum value that the reference resolves to.
+	resolvedDeclaredValue UserDefinedValue
 
-	// If the identifier resolves to an EnumValue then this is
-	// that EnumValue. If the identifierr resolves to a UserDefinedConstant
-	// this is that UserDefinedConstant's resolvedValue. The reason for the
-	// lack of symmetry between the two cases is that an EnumValue is itself
-	// considered a ConcreteValue without having to be resolved whereas a
-	// UserDefinedConstant is not a ConcreteValue, only its |resolvedValue|
-	// is.
-	resolvedValue ConcreteValue
+	// The concrete value that the reference resolves to.
+	// If |resolvedDeclaredValue| is an EnumValue then that is already
+	// a ConcreteValue and |resolvedConcreteValue| == |resolvedDeclaredValue|.
+	// But if |resolvedDeclaredValue| is a UserDefinedConstant then,
+	// since those are not considered ConcreteValues,
+	// |resolvedConcreteValue| is that constan't resolved value.
+	resolvedConcreteValue ConcreteValue
 }
 
 func (v UserValueRef) ResolvedValue() ConcreteValue {
-	return v.resolvedValue
+	return v.resolvedConcreteValue
 }
 
 func (v *UserValueRef) String() string {
-	return fmt.Sprintf("%s", v.identifier)
+	resolvedKey := ""
+	if v.resolvedDeclaredValue != nil {
+		resolvedKey = v.resolvedDeclaredValue.ValueKey()
+	}
+	return fmt.Sprintf("(%s)%s", resolvedKey, v.identifier)
 }
 
 func (v *UserValueRef) LongString() string {
@@ -589,6 +591,7 @@ func (v *UserValueRef) LongString() string {
 func NewUserValueRef(assigneeType TypeRef, identifier string, scope *Scope,
 	token lexer.Token) *UserValueRef {
 	valueReference := new(UserValueRef)
+	valueReference.assigneeType = assigneeType
 	valueReference.scope = scope
 	valueReference.token = token
 	valueReference.identifier = identifier
