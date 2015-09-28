@@ -940,6 +940,7 @@ func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.U
 	defer p.popNode()
 
 	p.match(lexer.CONST)
+	declaredTypeToken := p.peekNextToken("Parsing a type.")
 	declaredType := p.parseType()
 	name := p.readName()
 	if !p.OK() {
@@ -949,6 +950,15 @@ func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.U
 	p.match(lexer.EQUALS)
 	value := p.parseValue(declaredType)
 	if !p.OK() {
+		return
+	}
+
+	if !declaredType.MarkUsedAsConstantType() {
+		message := fmt.Sprintf("The type %s at %s is not allowed as the type "+
+			"of a declared constant. Only simple types, strings and enum "+
+			"types may be the types of constants.",
+			declaredType, declaredTypeToken.LongLocationString())
+		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 		return
 	}
 

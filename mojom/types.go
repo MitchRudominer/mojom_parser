@@ -459,6 +459,7 @@ type UserTypeRef struct {
 	token lexer.Token
 
 	usedAsMapKey               bool
+	usedAsConstantType         bool
 	usedAsEnumValueInitializer bool
 
 	resolvedType UserDefinedType
@@ -480,29 +481,30 @@ func (UserTypeRef) TypeRefKind() TypeKind {
 	return USER_DEFINED_TYPE
 }
 
-func (t UserTypeRef) ResolvedType() UserDefinedType {
+func (t *UserTypeRef) ResolvedType() UserDefinedType {
 	return t.resolvedType
 }
 
-func (t UserTypeRef) MarkUsedAsMapKey() bool {
+func (t *UserTypeRef) MarkUsedAsMapKey() bool {
 	t.usedAsMapKey = true
 	return true
 }
 
-func (t UserTypeRef) MarkUsedAsEnumValueInitializer() bool {
+func (t *UserTypeRef) MarkUsedAsEnumValueInitializer() bool {
 	t.usedAsEnumValueInitializer = true
 	return true
 }
 
-func (UserTypeRef) MarkUsedAsConstantType() bool {
-	return false
+func (t *UserTypeRef) MarkUsedAsConstantType() bool {
+	t.usedAsConstantType = true
+	return true
 }
 
-func (t UserTypeRef) Nullable() bool {
+func (t *UserTypeRef) Nullable() bool {
 	return t.nullable
 }
 
-func (t UserTypeRef) String() string {
+func (t *UserTypeRef) String() string {
 	interfaceRequest := ""
 	if t.interfaceRequest {
 		interfaceRequest = "&"
@@ -518,7 +520,7 @@ func (t UserTypeRef) String() string {
 	return fmt.Sprintf("(%s)%s%s%s", resolvedKey, t.identifier, interfaceRequest, nullable)
 }
 
-func (t UserTypeRef) LongString() string {
+func (t *UserTypeRef) LongString() string {
 	return fmt.Sprintf("%s %s:%s. (In %s.)", t.identifier,
 		t.scope.file.FileName, t.token.ShortLocationString(), t.scope)
 }
