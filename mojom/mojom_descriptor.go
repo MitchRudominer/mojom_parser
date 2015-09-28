@@ -220,45 +220,38 @@ func (d *MojomDescriptor) ContainsFile(fileName string) bool {
 // Resolve() should be invoked after all of the parsing has been done. It
 // attempts to resolve all of the entries in |d.unresolvedTypeReferences| and
 // |d.unresolvedValueReferences|. Returns a non-nil error if there are any
-// remaining unresolved references.
+// remaining unresolved references or if after resolution it was discovered
+// that a type or value was used in an inappropriate way.
 func (d *MojomDescriptor) Resolve() error {
-	unresolvedTypeReferences := make([]*UserTypeRef,
-		len(d.unresolvedTypeReferences))
-	numUnresolvedTypeReferences := 0
-	for _, ref := range d.unresolvedTypeReferences {
-		if ref != nil {
-			if !d.resolveTypeRef(ref) {
-				unresolvedTypeReferences[numUnresolvedTypeReferences] = ref
-				numUnresolvedTypeReferences++
-			} else {
-				if err := ref.validateAfterResolution(); ref != nil {
-					// The type reference was successfully resolved but
-					// after doing so we discovered that the reference
-					// was used in an inappropriate way given the resolved
-					// type.
-					return err
-				}
-			}
-		}
+	// Resolve the types
+	unresolvedTypeReferences, err := d.resolveTypeReferences()
+	if err != nil {
+		// For one of the type references we discovered after resolution that
+		// the resolved type was used in an inappropriate way.
+		return err
 	}
+	numUnresolvedTypeReferences := len(unresolvedTypeReferences)
 
-	unresolvedValueReferences := make([]*UserValueRef,
-		len(d.unresolvedValueReferences))
-	numUnresolvedValueReferences := 0
-	for _, ref := range d.unresolvedValueReferences {
-		if ref != nil {
-			if !d.resolveValueRef(ref) {
-				unresolvedValueReferences[numUnresolvedValueReferences] = ref
-				numUnresolvedValueReferences++
-			} else {
-				if err := ref.validateAfterResolution(); err != nil {
-					// The value reference was successfully resolved but
-					// after doing so we discovered that the reference
-					// was used in an inappropriate way given the type
-					// of the resolved value.
-					return err
-				}
-			}
+	// Resolve the values
+	unresolvedValueReferences, err := d.resolveValueReferences()
+	if err != nil {
+		// For one of the value references we discovered after resolution that
+		// the resolved value was used in an inappropriate way.
+		return err
+	}
+	numUnresolvedValueReferences := len(unresolvedValueReferences)
+	// Because values may be defined in terms of user-defined constants which
+	// may themselves be defined in terms of other user-defined constants,
+	// we may have to perform the value resolution step multiple times in
+	// order to propogage concrete values to all declarations. To make sure that
+	// this process terminates we keep iterating only as long as the number
+	// of unresolved value references decreases.
+	for numUnresolvedValueReferences > 0 {
+		unresolvedValueReferences, _ = d.resolveValueReferences()
+		if len(unresolvedValueReferences) < numUnresolvedValueReferences {
+			numUnresolvedValueReferences = len(unresolvedValueReferences)
+		} else {
+			break
 		}
 	}
 
@@ -287,34 +280,83 @@ func (d *MojomDescriptor) Resolve() error {
 	return fmt.Errorf(errorMessage)
 }
 
+func (d *MojomDescriptor) resolveTypeReferences() (unresolvedReferences []*UserTypeRef, postResolutionValidationError error) {
+	unresolvedReferences = make([]*UserTypeRef, len(d.unresolvedTypeReferences))
+	numUnresolved := 0
+	for _, ref := range d.unresolvedTypeReferences {
+		if ref != nil {
+			if !d.resolveTypeRef(ref) {
+				unresolvedReferences[numUnresolved] = ref
+				numUnresolved++
+			} else {
+				if postResolutionValidationError := ref.validateAfterResolution(); postResolutionValidationError != nil {
+					break
+				}
+			}
+		}
+	}
+	unresolvedReferences = unresolvedReferences[0:numUnresolved]
+	return
+}
+
+func (d *MojomDescriptor) resolveValueReferences() (unresolvedReferences []*UserValueRef, postResolutionValidationError error) {
+	unresolvedReferences = make([]*UserValueRef, len(d.unresolvedValueReferences))
+	numUnresolved := 0
+	for _, ref := range d.unresolvedValueReferences {
+		if ref != nil {
+			if !d.resolveValueRef(ref) {
+				unresolvedReferences[numUnresolved] = ref
+				numUnresolved++
+			} else {
+				if postResolutionValidationError = ref.validateAfterResolution(); postResolutionValidationError != nil {
+					break
+				}
+			}
+		}
+	}
+	unresolvedReferences = unresolvedReferences[0:numUnresolved]
+	return
+}
+
 func (d *MojomDescriptor) resolveTypeRef(ref *UserTypeRef) (success bool) {
 	ref.resolvedType = ref.scope.LookupType(ref.identifier)
 	return ref.resolvedType != nil
 }
 
+// There are two steps to resolving a value. First resolve the identifier to
+// to a target declaration, then resolve the target declaration to a
+// concrte value.
 func (d *MojomDescriptor) resolveValueRef(ref *UserValueRef) (resolved bool) {
-	userDefinedValue := ref.scope.LookupValue(ref.identifier, ref.assigneeType)
-	if userDefinedValue == nil {
-		return false
-	}
-	if declaredConstant := userDefinedValue.AsDeclaredConstant(); declaredConstant != nil {
-		// The identifier resolves to a user-declared constant.
-		ref.resolvedDeclaredValue = declaredConstant
-		// We set the resolved value of the reference to the resoled value of the
-		// right-hand-side of the constant declaration.
-		ref.resolvedConcreteValue = declaredConstant.valueRef.ResolvedValue()
-		if ref.resolvedConcreteValue != nil {
-			return true
+	// Step 1: Find resolvedDeclaredValue
+	if ref.resolvedDeclaredValue == nil {
+		userDefinedValue := ref.scope.LookupValue(ref.identifier, ref.assigneeType)
+		if userDefinedValue == nil {
+			return false
 		}
-		// TODO(rudominer) We need to figure out how to handle chains of value references.
-		return false
+		if declaredConstant := userDefinedValue.AsDeclaredConstant(); declaredConstant != nil {
+			// The identifier resolves to a user-declared constant.
+			ref.resolvedDeclaredValue = declaredConstant
+		} else {
+			// The identifier resolves to a user-declared constant.
+			ref.resolvedDeclaredValue = userDefinedValue.AsEnumValue()
+		}
 	}
 
-	// The identifier resolves to an enum value. We se the resolved value
-	// of the reference to be the enum value itself (not the integer value
-	// of the enum value.)
-	ref.resolvedDeclaredValue = userDefinedValue.AsEnumValue()
-	ref.resolvedConcreteValue = userDefinedValue.AsEnumValue()
+	// Step 2: Find resolvedConcreteValue.
+	if declaredConstant := ref.resolvedDeclaredValue.AsDeclaredConstant(); declaredConstant != nil {
+		// The identifier resolved to a user-declared constant. We use
+		// the (possibly nil) resolved value of that constant as
+		// resolvedConcreteValue. Since this may be nil it is possible that
+		// ref is still unresolved.
+		ref.resolvedConcreteValue = declaredConstant.valueRef.ResolvedConcreteValue()
+	} else {
+		// The identifier resolved to an enum value. We use the enum value
+		// itself (not the integer value of the enum value) as the
+		// resolvedConcreteValue. Since this cannot be nil we know that
+		// ref is now fully resolved.s
+		ref.resolvedConcreteValue = ref.resolvedDeclaredValue.AsEnumValue()
+	}
+
 	return ref.resolvedConcreteValue != nil
 }
 

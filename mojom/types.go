@@ -523,7 +523,7 @@ func (t *UserTypeRef) LongString() string {
 // as the values of declared constants, and as the explicitly assigned value of
 // an enum value.  A ValueRef is either a LiteralValue or a UserValueRef.
 type ValueRef interface {
-	ResolvedValue() ConcreteValue
+	ResolvedConcreteValue() ConcreteValue
 	MarkUsedAsEnumValueInitializer() bool
 }
 
@@ -565,7 +565,7 @@ type UserValueRef struct {
 	resolvedConcreteValue ConcreteValue
 }
 
-func (v UserValueRef) ResolvedValue() ConcreteValue {
+func (v UserValueRef) ResolvedConcreteValue() ConcreteValue {
 	return v.resolvedConcreteValue
 }
 
@@ -674,6 +674,6 @@ func (v LiteralValue) Value() interface{} {
 
 // A LiteralValue is also a ValueRef and is its own
 // ResolvedValue.
-func (v LiteralValue) ResolvedValue() ConcreteValue {
+func (v LiteralValue) ResolvedConcreteValue() ConcreteValue {
 	return v
 }
