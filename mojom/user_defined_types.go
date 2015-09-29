@@ -3,7 +3,6 @@ package mojom
 import (
 	"errors"
 	"fmt"
-	"github.com/rudominer/mojom_parser/lexer"
 	"math"
 	"strings"
 )
@@ -43,7 +42,7 @@ type UserDefinedType interface {
 	Kind() UserDefinedTypeKind
 	TypeKey() string
 	Scope() *Scope
-	Identical(other UserDefinedType) bool
+	IsAssignmentCompatibleWith(value LiteralValue) bool
 }
 
 // This struct is embedded in each of MojomStruct, MojomInterface
@@ -169,6 +168,10 @@ func (MojomStruct) Kind() UserDefinedTypeKind {
 	return STRUCT_TYPE
 }
 
+func (MojomStruct) IsAssignmentCompatibleWith(value LiteralValue) bool {
+	return value.IsDefault()
+}
+
 // This should be invoked some time after all of the fields have been added
 // to the struct.
 func (s *MojomStruct) ComputeFieldOrdinals() {
@@ -223,29 +226,29 @@ type StructField struct {
 
 	fieldType    TypeRef
 	defaultValue ValueRef
-	// We save this token because it is possible that we won't be able to
-	// validate the type safety of the assignment until after the resolution
-	// phase and at that point we want to be able to generate a useful
-	// error message.
-	defaultValueFirstToken *lexer.Token
-	offset                 int32
+	offset       int32
 }
 
-func NewStructField(fieldType TypeRef, name string,
-	ordinal int64, attributes *Attributes, defaultValue ValueRef,
-	defaultValueFirstToken *lexer.Token) *StructField {
-	field := StructField{fieldType: fieldType, defaultValue: defaultValue,
-		defaultValueFirstToken: defaultValueFirstToken}
+func NewStructField(fieldType TypeRef, name string, ordinal int64, attributes *Attributes, defaultValue ValueRef) *StructField {
+	field := StructField{fieldType: fieldType, defaultValue: defaultValue}
 	field.InitVariableDeclarationData(name, attributes, ordinal)
 	return &field
 }
 
-func (f *StructField) ValidateDefaultValue(descriptor *MojomDescriptor) error {
-	// TODO(rudominer) If if it is possible to validate without resolving, do
-	// so now and possibly return an error. Otherwise register this field
-	// with the given descritpor as something that needs to be validated
-	// later after resolution.
-	return nil
+func (f *StructField) ValidateDefaultValue() (ok bool) {
+	if f.defaultValue == nil {
+		return true
+	}
+	if literalValue, ok := f.defaultValue.(LiteralValue); ok {
+		// The default value is a literal value. It is only this case we have to
+		// handle now because if the default value were instead a reference then
+		// it was already marked with the field type as it's assignee type and
+		// it will be validated after resolution.
+		assignment := VariableAssignment{assignedValue: literalValue,
+			variableName: f.SimpleName(), kind: DEFAULT_STRUCT_FIELD}
+		return f.fieldType.MarkVariableAssignment(assignment)
+	}
+	return true
 }
 
 func (f StructField) String() string {
@@ -296,6 +299,10 @@ func (i *MojomInterface) AddMethod(method *MojomMethod) {
 
 func (MojomInterface) Kind() UserDefinedTypeKind {
 	return INTERFACE_TYPE
+}
+
+func (MojomInterface) IsAssignmentCompatibleWith(value LiteralValue) bool {
+	return false
 }
 
 var ErrOrdinalRange = errors.New("ordinal value out of range")
@@ -418,6 +425,10 @@ func (MojomUnion) Kind() UserDefinedTypeKind {
 	return UNION_TYPE
 }
 
+func (MojomUnion) IsAssignmentCompatibleWith(value LiteralValue) bool {
+	return value.IsDefault()
+}
+
 type UnionField struct {
 	VariableDeclarationData
 
@@ -447,6 +458,18 @@ func (MojomEnum) ConcreteTypeKind() TypeKind {
 }
 
 func (*MojomEnum) AllowedAsEnumValueInitializer() bool {
+	return true
+}
+
+func (e MojomEnum) IsAssignmentCompatibleWith(value LiteralValue) bool {
+	if value.IsDefault() {
+		return true
+	}
+	t := value.LiteralValueType()
+	if t == INT8 || t == INT16 || t == INT32 || t == INT64 {
+		// TODO(rudominer) We should check that the value is in the range of the enum fields.
+		return true
+	}
 	return false
 }
 
@@ -661,6 +684,19 @@ func (b *UserDefinedConstant) String() string {
 func (b *UserDefinedConstant) toString(indentLevel int) string {
 	indent := strings.Repeat(" ", indentLevel)
 	return fmt.Sprintf("\n%sconst %s %s", indent, b.declaredType, b.UserDefinedValueBase)
+}
+
+func (c *UserDefinedConstant) ValidateValue() (ok bool) {
+	if literalValue, ok := c.valueRef.(LiteralValue); ok {
+		// The value is a literal value. It is only this case we have to
+		// handle now because if the  value were instead a reference then
+		// it was already marked with the constants declared type as it's
+		// assignee type and it will be validated after resolution.
+		assignment := VariableAssignment{assignedValue: literalValue,
+			variableName: c.simpleName, kind: CONSTANT_DECLARATION}
+		return c.declaredType.MarkVariableAssignment(assignment)
+	}
+	return true
 }
 
 func (constant *UserDefinedConstant) AsDeclaredConstant() *UserDefinedConstant {

@@ -289,7 +289,7 @@ func (d *MojomDescriptor) resolveTypeReferences() (unresolvedReferences []*UserT
 				unresolvedReferences[numUnresolved] = ref
 				numUnresolved++
 			} else {
-				if postResolutionValidationError := ref.validateAfterResolution(); postResolutionValidationError != nil {
+				if postResolutionValidationError = ref.validateAfterResolution(); postResolutionValidationError != nil {
 					break
 				}
 			}

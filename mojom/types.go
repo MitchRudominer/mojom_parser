@@ -70,8 +70,22 @@ type ConcreteType interface {
 type TypeRef interface {
 	Stringable
 	TypeRefKind() TypeKind
+
+	// The following three methods check the validity of a use of the TypeRef.
+	// If it is possible to tell immediately that the use is invalid then
+	// they return false. Otherwise they return true. If it is not possible to
+	// determine if the use is valid before the reference is resolved, then
+	// the methods record the data necessary to do the check later.
+
+	// Can the type be used as the type of the key to a map?
 	MarkUsedAsMapKey() (ok bool)
+
+	// Can the type be used as the type of a declared constant?
 	MarkUsedAsConstantType() (ok bool)
+
+	// Can the type be used as the type of a variable to which the given
+	// variable assignment is being made?
+	MarkVariableAssignment(assignment VariableAssignment) (ok bool)
 }
 
 /////////////////////////////////////////////////////////////
@@ -130,6 +144,19 @@ func (SimpleType) MarkUsedAsMapKey() bool {
 
 // From interface TypeRef
 func (SimpleType) MarkUsedAsConstantType() bool {
+	return true
+}
+
+// From interface TypeRef
+func (t SimpleType) MarkVariableAssignment(assignment VariableAssignment) bool {
+	if assignment.assignedValue.IsDefault() {
+		return false
+	}
+	switch assignment.assignedValue.LiteralValueType() {
+	case StringLiteralType:
+		return false
+	}
+	// TODO(rudominer) Implement the other cases.
 	return true
 }
 
@@ -207,6 +234,12 @@ func (StringType) MarkUsedAsConstantType() bool {
 }
 
 // From interface TypeRef
+func (StringType) MarkVariableAssignment(assignment VariableAssignment) (ok bool) {
+	v := assignment.assignedValue
+	return v.LiteralValueType() == StringLiteralType || v.IsDefault()
+}
+
+// From interface TypeRef
 func (s StringType) String() string {
 	nullableSpecifier := ""
 	if s.nullable {
@@ -248,6 +281,11 @@ func (HandleType) MarkUsedAsMapKey() bool {
 
 func (HandleType) MarkUsedAsConstantType() bool {
 	return false
+}
+
+// From interface TypeRef
+func (HandleType) MarkVariableAssignment(assignment VariableAssignment) bool {
+	return assignment.assignedValue.IsDefault()
 }
 
 const HANDLE_PREFIX = "handle"
@@ -355,6 +393,11 @@ func (ArrayTypeRef) MarkUsedAsConstantType() bool {
 	return false
 }
 
+// From interface TypeRef
+func (ArrayTypeRef) MarkVariableAssignment(assignment VariableAssignment) bool {
+	return assignment.assignedValue.IsDefault()
+}
+
 func (a ArrayTypeRef) Nullable() bool {
 	return a.nullable
 }
@@ -401,6 +444,11 @@ func (MapTypeRef) MarkUsedAsConstantType() bool {
 	return false
 }
 
+// From interface TypeRef
+func (MapTypeRef) MarkVariableAssignment(assignment VariableAssignment) bool {
+	return assignment.assignedValue.IsDefault()
+}
+
 func (m MapTypeRef) Nullable() bool {
 	return m.nullable
 }
@@ -435,6 +483,7 @@ type UserTypeRef struct {
 
 	usedAsMapKey       bool
 	usedAsConstantType bool
+	variableAssignment *VariableAssignment
 
 	resolvedType UserDefinedType
 }
@@ -469,6 +518,11 @@ func (t *UserTypeRef) MarkUsedAsConstantType() bool {
 	return true
 }
 
+func (t *UserTypeRef) MarkVariableAssignment(assignment VariableAssignment) bool {
+	t.variableAssignment = &assignment
+	return true
+}
+
 func (t *UserTypeRef) Nullable() bool {
 	return t.nullable
 }
@@ -476,7 +530,8 @@ func (t *UserTypeRef) Nullable() bool {
 func (ref *UserTypeRef) validateAfterResolution() error {
 	if ref.resolvedType.Kind() != ENUM_TYPE {
 		// A type ref has resolved to a non-enum type. Make sure it is not
-		// being used as either a map key or a constant declaration.
+		// being used as either a map key or a constant declaration. Also
+		// make sure that a literal was not assigned to it.
 		if ref.usedAsMapKey {
 			return fmt.Errorf("The type %s at %s is not allowed as the key "+
 				"type of a map. Only simple types, strings and enum types may "+
@@ -489,6 +544,14 @@ func (ref *UserTypeRef) validateAfterResolution() error {
 				"types may be the types of constants.",
 				ref.identifier, ref.token.LongLocationString())
 		}
+	}
+	if ref.variableAssignment != nil && !ref.resolvedType.IsAssignmentCompatibleWith(ref.variableAssignment.assignedValue) {
+		return fmt.Errorf("Type validation error\n"+
+			"%s:%s: Illegal assignment: %s %s of type %s may not be assigned the value %v of type %s.",
+			ref.scope.file.FileName, ref.token.ShortLocationString(),
+			ref.variableAssignment.kind, ref.variableAssignment.variableName,
+			ref.identifier, ref.variableAssignment.assignedValue,
+			ref.variableAssignment.assignedValue.LiteralValueType())
 	}
 	return nil
 }
@@ -629,25 +692,35 @@ type LiteralValue struct {
 	valueType LiteralType
 
 	value interface{}
+
+	// Does this LiteralValue represent the pseudo value "default"
+	isDefault bool
 }
 
 func MakeStringLiteralValue(text string) LiteralValue {
-	return LiteralValue{StringLiteralType, text}
+	return LiteralValue{StringLiteralType, text, false}
 }
 
 func MakeBoolLiteralValue(value bool) LiteralValue {
-	return LiteralValue{BOOL, value}
+	return LiteralValue{BOOL, value, false}
 }
 
 func MakeInt64LiteralValue(value int64) LiteralValue {
-	return LiteralValue{INT64, value}
+	return LiteralValue{INT64, value, false}
 }
 
 func MakeDoubleLiteralValue(value float64) LiteralValue {
-	return LiteralValue{DOUBLE, value}
+	return LiteralValue{DOUBLE, value, false}
+}
+
+func MakeDefaultLiteral() LiteralValue {
+	return LiteralValue{StringLiteralType, "default", true}
 }
 
 func (lv LiteralValue) String() string {
+	if lv.isDefault {
+		return "default"
+	}
 	switch lv.valueType.ConcreteTypeKind() {
 	case STRING_TYPE:
 		return fmt.Sprintf("\"%v\"", lv.value)
@@ -676,4 +749,35 @@ func (v LiteralValue) Value() interface{} {
 // ResolvedValue.
 func (v LiteralValue) ResolvedConcreteValue() ConcreteValue {
 	return v
+}
+
+func (v LiteralValue) IsDefault() bool {
+	return v.isDefault
+}
+
+// VariableAssignment represents an assignment of a literal value to a variable.
+// It is used to help track of whether or not the assignment is valid and if not
+// to issue an appropriate error message.
+type VariableAssignmentKind int
+
+const (
+	DEFAULT_STRUCT_FIELD VariableAssignmentKind = iota
+	CONSTANT_DECLARATION
+)
+
+func (k VariableAssignmentKind) String() string {
+	switch k {
+	case DEFAULT_STRUCT_FIELD:
+		return "field"
+	case CONSTANT_DECLARATION:
+		return "const"
+	default:
+		panic(fmt.Sprintf("Unknown VariableAssignmentKind %d", k))
+	}
+}
+
+type VariableAssignment struct {
+	assignedValue LiteralValue
+	variableName  string
+	kind          VariableAssignmentKind
 }

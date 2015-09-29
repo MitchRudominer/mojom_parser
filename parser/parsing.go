@@ -563,7 +563,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 			return
 		}
 
-		paramStruct.AddField(mojom.NewStructField(fieldType, name, ordinalValue, attributes, nil, nil))
+		paramStruct.AddField(mojom.NewStructField(fieldType, name, ordinalValue, attributes, nil))
 
 		nextToken = p.peekNextToken("I was parsing method parameters.")
 		switch nextToken.Kind {
@@ -697,15 +697,34 @@ func (p *Parser) parseStructField(attributes *mojom.Attributes) *mojom.StructFie
 	var defaultValue mojom.ValueRef
 	var defaultValueToken lexer.Token
 	if p.tryMatch(lexer.EQUALS) {
-		// TODO(rudominer) Special handling of the identifier "default".
 		defaultValueToken = p.peekNextToken("Expecting a default value.")
-		defaultValue = p.parseValue(fieldType)
+		if defaultValueToken.Kind == lexer.DEFAULT {
+			p.consumeNextToken()
+			defaultValue = mojom.MakeDefaultLiteral()
+		} else {
+			defaultValue = p.parseValue(fieldType)
+		}
 	}
 	if !p.matchSemicolon() {
 		return nil
 	}
 
-	return mojom.NewStructField(fieldType, fieldName, ordinalValue, attributes, defaultValue, &defaultValueToken)
+	field := mojom.NewStructField(fieldType, fieldName, ordinalValue, attributes, defaultValue)
+	if !field.ValidateDefaultValue() {
+		valueString := fmt.Sprintf("%v", defaultValue)
+		valueTypeString := ""
+		concreteValue := defaultValue.ResolvedConcreteValue()
+		if concreteValue != nil {
+			valueString = fmt.Sprintf("%v", concreteValue.Value())
+			valueTypeString = fmt.Sprintf(" of type %s", concreteValue.ValueType())
+		}
+		message := fmt.Sprintf("Illegal assignment at %s: Field %s of type %s may not be assigned the value %v%s.",
+			defaultValueToken.LongLocationString(), fieldName, fieldType, valueString, valueTypeString)
+		p.err = &ParseError{E_TYPE_NOT_ASSIGNMENT_COMPATIBLE, message}
+		return nil
+	}
+
+	return field
 }
 
 // UNION_DECL    -> union name lbrace UNION_BODY rbrace semi
@@ -948,6 +967,7 @@ func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.U
 	}
 	nameToken = p.lastConsumed
 	p.match(lexer.EQUALS)
+	valueToken := p.peekNextToken("Parsing a value.")
 	value := p.parseValue(declaredType)
 	if !p.OK() {
 		return
@@ -962,11 +982,23 @@ func (p *Parser) parseConstDecl(attributes *mojom.Attributes) (constant *mojom.U
 		return
 	}
 
-	// TODO(rudominer) Check that
-	// (1) The type of value is assignment compatible to deckaredType
-	// (2) The declared type is CONST_OK
 	constant = mojom.NewUserDefinedConstant(name, declaredType, value, attributes)
 	p.matchSemicolon()
+
+	if !constant.ValidateValue() {
+		valueString := fmt.Sprintf("%v", value)
+		valueTypeString := ""
+		concreteValue := value.ResolvedConcreteValue()
+		if concreteValue != nil {
+			valueString = fmt.Sprintf("%v", concreteValue.Value())
+			valueTypeString = fmt.Sprintf(" of type %s", concreteValue.ValueType())
+		}
+		message := fmt.Sprintf("Illegal assignment at %s: Constant %s of type %s may not be assigned the value %v%s.",
+			valueToken.LongLocationString(), name, declaredType, valueString, valueTypeString)
+		p.err = &ParseError{E_TYPE_NOT_ASSIGNMENT_COMPATIBLE, message}
+		return
+	}
+
 	return
 }
 
