@@ -85,7 +85,7 @@ type TypeRef interface {
 
 	// Can the type be used as the type of a variable to which the given
 	// variable assignment is being made?
-	MarkVariableAssignment(assignment VariableAssignment) (ok bool)
+	MarkTypeCompatible(assignment VariableAssignment) (ok bool)
 }
 
 /////////////////////////////////////////////////////////////
@@ -148,15 +148,24 @@ func (SimpleType) MarkUsedAsConstantType() bool {
 }
 
 // From interface TypeRef
-func (t SimpleType) MarkVariableAssignment(assignment VariableAssignment) bool {
+func (t SimpleType) MarkTypeCompatible(assignment VariableAssignment) bool {
 	if assignment.assignedValue.IsDefault() {
+		// We don't support assigning "default" to a SimpleType variable.
 		return false
 	}
 	switch assignment.assignedValue.LiteralValueType() {
 	case StringLiteralType:
+		// Not valid to assign a string to a SimpleType variable.
 		return false
+	case BOOL:
+		return t == BOOL
+	case DOUBLE, FLOAT:
+		return t == DOUBLE || t == FLOAT
+	case INT8, INT16, INT32, INT64, UINT8, UINT16, UINT32, UINT64:
+		return t == INT8 || t == INT16 || t == INT32 || t == INT64 ||
+			t == UINT8 || t == UINT16 || t == UINT32 || t == UINT64
 	}
-	// TODO(rudominer) Implement the other cases.
+	// TODO(rudominer) Refine numeric type compatability checking.
 	return true
 }
 
@@ -234,7 +243,7 @@ func (StringType) MarkUsedAsConstantType() bool {
 }
 
 // From interface TypeRef
-func (StringType) MarkVariableAssignment(assignment VariableAssignment) (ok bool) {
+func (StringType) MarkTypeCompatible(assignment VariableAssignment) (ok bool) {
 	v := assignment.assignedValue
 	return v.LiteralValueType() == StringLiteralType || v.IsDefault()
 }
@@ -284,7 +293,7 @@ func (HandleType) MarkUsedAsConstantType() bool {
 }
 
 // From interface TypeRef
-func (HandleType) MarkVariableAssignment(assignment VariableAssignment) bool {
+func (HandleType) MarkTypeCompatible(assignment VariableAssignment) bool {
 	return assignment.assignedValue.IsDefault()
 }
 
@@ -394,7 +403,7 @@ func (ArrayTypeRef) MarkUsedAsConstantType() bool {
 }
 
 // From interface TypeRef
-func (ArrayTypeRef) MarkVariableAssignment(assignment VariableAssignment) bool {
+func (ArrayTypeRef) MarkTypeCompatible(assignment VariableAssignment) bool {
 	return assignment.assignedValue.IsDefault()
 }
 
@@ -445,7 +454,7 @@ func (MapTypeRef) MarkUsedAsConstantType() bool {
 }
 
 // From interface TypeRef
-func (MapTypeRef) MarkVariableAssignment(assignment VariableAssignment) bool {
+func (MapTypeRef) MarkTypeCompatible(assignment VariableAssignment) bool {
 	return assignment.assignedValue.IsDefault()
 }
 
@@ -518,7 +527,7 @@ func (t *UserTypeRef) MarkUsedAsConstantType() bool {
 	return true
 }
 
-func (t *UserTypeRef) MarkVariableAssignment(assignment VariableAssignment) bool {
+func (t *UserTypeRef) MarkTypeCompatible(assignment VariableAssignment) bool {
 	t.variableAssignment = &assignment
 	return true
 }
@@ -638,7 +647,8 @@ func (v *UserValueRef) MarkUsedAsEnumValueInitializer() bool {
 }
 
 func (v *UserValueRef) validateAfterResolution() error {
-	// TODO(rudominer) This method should check the following
+	// TODO(rudominer) Implement UserValueRef.validateAfterResolution()
+	// This method should check the following:
 	// - If |usedAsEnumValueInitializer| is true then |resolvedDeclaredValue|
 	// must be an EnumValue
 	// - The |resolvedConcreteValue| must have a type that is assignment

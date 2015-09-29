@@ -72,7 +72,13 @@ func (tokenKind TokenKind) String() string {
 	switch tokenKind {
 	// Errors
 	case ERROR_UNKNOWN:
-		return "UNKNOWN"
+		return "unknown token"
+	case ERROR_ILLEGAL_CHAR:
+		return "illegal token"
+	case ERROR_UNTERMINATED_STRING_LITERAL:
+		return "unterminated string literal"
+	case ERROR_UNTERMINATED_COMMENT:
+		return "unterminated comment"
 
 	// Punctuators and Separators
 	case LPAREN:
@@ -83,14 +89,14 @@ func (tokenKind TokenKind) String() string {
 		return "'['"
 	case RBRACKET:
 		return "']'"
-	case LANGLE:
-		return "'<'"
-	case RANGLE:
-		return "'>'"
 	case LBRACE:
 		return "'{'"
 	case RBRACE:
 		return "'}'"
+	case LANGLE:
+		return "'<'"
+	case RANGLE:
+		return "'>'"
 	case SEMI:
 		return "';'"
 	case COMMA:
@@ -107,8 +113,10 @@ func (tokenKind TokenKind) String() string {
 		return "'?'"
 	case EQUALS:
 		return "'='"
+	case RESPONSE:
+		return "'=>'"
 
-	// Identifiers
+	// Names
 	case NAME:
 		return "a name"
 
@@ -146,13 +154,9 @@ func (tokenKind TokenKind) String() string {
 	case STRING_LITERAL:
 		return "a string literal"
 
-	// TODO: Add the rest
 	default:
-		// Note(rudominer) Be very careful not to do what I tried to do in
-		// the commented-out line below. This causes an infinite recursion
-		// because Sprintf invokes TokenKind.toString() when a '%v' is used.
-		// It works fine to use a '%d' instead in this case.
-		//panic(fmt.Sprintf("Invalid TokenKind: %v", tokenKind))
+		// Note(rudominer) It is important to use %d below so as to avoid
+		// re-invoking this method and causing an infinite recursion.
 		return fmt.Sprintf("%d", tokenKind)
 	}
 }
@@ -192,7 +196,7 @@ func (t Token) EOF() bool {
 // Unexpected token at line 5, column 6: '###'. Expecting '{'.
 func (token Token) String() string {
 	switch token.Kind {
-	case ERROR_UNKNOWN, NAME, STRING_LITERAL, INT_CONST_DEC, INT_CONST_HEX, FLOAT_CONST:
+	case ERROR_UNKNOWN, NAME, STRING_LITERAL, INT_CONST_DEC, INT_CONST_HEX, FLOAT_CONST, ORDINAL:
 		return fmt.Sprintf("'%s'", token.Text)
 
 	default:

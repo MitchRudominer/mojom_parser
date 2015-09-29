@@ -97,9 +97,14 @@ func (d *ParseDriver) ParseFiles(fileNames []string) ParseResult {
 		}
 	}
 
-	resolutionError := d.descriptor.Resolve()
+	// Perform type and value resolution
+	if resolutionError := d.descriptor.Resolve(); resolutionError != nil {
+		return ParseResult{Err: resolutionError, Descriptor: d.descriptor}
+	}
 
-	return ParseResult{Err: resolutionError, Descriptor: d.descriptor}
+	// Compute data for generators.
+	computationError := d.descriptor.ComputeDataForGenerators()
+	return ParseResult{Err: computationError, Descriptor: d.descriptor}
 }
 
 type FileReference struct {

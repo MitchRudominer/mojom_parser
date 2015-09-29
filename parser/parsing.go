@@ -226,10 +226,7 @@ func (p *Parser) parseMojomFile() bool {
 				dupeMessage = p.duplicateNameMessage(p.mojomFile.AddConstant(constant), nameToken)
 			}
 		default:
-			message := fmt.Sprintf("Unexpected token at %s: %s. "+
-				"Expecting interface, struct, union, enum or const.",
-				nextToken.LongLocationString(), nextToken)
-			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+			p.unexpectedTokenError(nextToken, "interface, struct, union, enum or const")
 			return false
 		}
 
@@ -295,9 +292,7 @@ func (p *Parser) parseAttributes() (attributes *mojom.Attributes) {
 				message = fmt.Sprintf("The attribute section is missing a closing ] before %v at %s.",
 					nextToken, nextToken.LongLocationString())
 			default:
-				message = fmt.Sprintf("Unexpected token in attributes section at %s: %v. Expecting comma or ].",
-					nextToken.LongLocationString(), nextToken)
-
+				message = p.unexpectedTokenError(nextToken, "comma or ]")
 			}
 			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
 			return
@@ -316,6 +311,9 @@ func (p *Parser) parseModuleDecl() (moduleIdentifier string) {
 		return
 	}
 	nextToken := p.peekNextToken("No Mojom declarations found.")
+	if !p.OK() {
+		return
+	}
 	switch nextToken.Kind {
 	case lexer.MODULE:
 		p.consumeNextToken() // Consume the MODULE token.
@@ -323,10 +321,7 @@ func (p *Parser) parseModuleDecl() (moduleIdentifier string) {
 	case lexer.IMPORT, lexer.INTERFACE, lexer.STRUCT, lexer.UNION, lexer.ENUM, lexer.CONST:
 		return // There is no module declaration.
 	default:
-		message := fmt.Sprintf("Unexpected token at %s: %s. "+
-			"Expecting module, import, interface, struct, union, enum or constant.",
-			nextToken.LongLocationString(), nextToken)
-		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+		p.unexpectedTokenError(nextToken, "module, import, interface, struct, union, enum or constant")
 		return
 	}
 
@@ -345,6 +340,9 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 	}
 
 	nextToken := p.peekNextToken("No Mojom declarations found.")
+	if !p.OK() {
+		return
+	}
 	for nextToken.Kind == lexer.IMPORT {
 		atLeastOneImport = true
 		p.pushChildNode("importStmnt")
@@ -376,10 +374,7 @@ func (p *Parser) parseImportStatements() (atLeastOneImport bool) {
 	case lexer.INTERFACE, lexer.STRUCT, lexer.UNION, lexer.ENUM, lexer.CONST:
 		return
 	default:
-		message := fmt.Sprintf("Unexpected token at %s: %s. "+
-			"Expecting import, interface, struct, union, enum or constant.",
-			nextToken.LongLocationString(), nextToken)
-		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+		p.unexpectedTokenError(nextToken, "import, interface, struct, union, enum or constant")
 		return
 	}
 }
@@ -464,10 +459,7 @@ func (p *Parser) parseInterfaceBody(mojomInterface *mojom.MojomInterface) bool {
 			}
 			break
 		default:
-			message := fmt.Sprintf("Unexpected token within interface body at %s: %s. "+
-				"Expecting union, enum, const or an identifier",
-				nextToken.LongLocationString(), nextToken)
-			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+			p.unexpectedTokenError(nextToken, "union, enum, const or an identifier")
 			return false
 		}
 		if p.OK() && len(dupeMessage) > 0 {
@@ -573,9 +565,7 @@ func (p *Parser) parseParamList() (paramStruct *mojom.MojomStruct) {
 		case lexer.RPAREN:
 			continue
 		default:
-			message := fmt.Sprintf("Unexpected token within method parameters at %s: %s. "+
-				"Expecting comma or ).", nextToken.LongLocationString(), nextToken)
-			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+			p.unexpectedTokenError(nextToken, "comma or )")
 			return nil
 		}
 	}
@@ -663,10 +653,7 @@ func (p *Parser) parseStructBody(mojomStruct *mojom.MojomStruct) bool {
 			}
 			break
 		default:
-			message := fmt.Sprintf("Unexpected token within struct body at %s: %s. "+
-				"Expecting field, enum or constant declaration.",
-				nextToken.LongLocationString(), nextToken)
-			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+			p.unexpectedTokenError(nextToken, "field, enum or constant declaration")
 			return false
 		}
 		if p.OK() && len(dupeMessage) > 0 {
@@ -798,10 +785,7 @@ func (p *Parser) parseUnionBody(union *mojom.MojomUnion) bool {
 			}
 			break
 		default:
-			message := fmt.Sprintf("Unexpected token within union body at %s: %s. "+
-				"Expecting either another union field or }.",
-				nextToken.LongLocationString(), nextToken)
-			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+			p.unexpectedTokenError(nextToken, "either another union field or }")
 			return false
 		}
 	}
@@ -897,10 +881,7 @@ func (p *Parser) parseEnumBody(mojomEnum *mojom.MojomEnum) bool {
 		case lexer.COMMA:
 			break
 		default:
-			message := fmt.Sprintf("Unexpected token within enum body at %s: %s. "+
-				"Expecting either another enum value or }.",
-				nextToken.LongLocationString(), nextToken)
-			p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+			p.unexpectedTokenError(nextToken, "either another enum value or }")
 			return false
 		}
 		if p.OK() && len(dupeMessage) > 0 {
@@ -1046,10 +1027,7 @@ func (p *Parser) parseLiteral() mojom.LiteralValue {
 		return p.parseNumberLiteral()
 
 	default:
-		message := fmt.Sprintf("Unexpected token %s at %s. "+
-			"Expecting a string, numeric or boolean literal.",
-			nextToken, nextToken.LongLocationString())
-		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+		p.unexpectedTokenError(nextToken, "a string, numeric or boolean literal")
 		return mojom.LiteralValue{}
 	}
 }
@@ -1066,10 +1044,7 @@ func (p *Parser) parseNumberLiteral() mojom.LiteralValue {
 	initialMinus := p.tryMatch(lexer.MINUS)
 	initialPlus := p.tryMatch(lexer.PLUS)
 	if initialMinus && initialPlus {
-		message := fmt.Sprintf("Unexpected token %s at %s. "+
-			"Expecting a number.", p.lastConsumed,
-			p.lastConsumed.LongLocationString())
-		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+		p.unexpectedTokenError(p.lastConsumed, "a number")
 		return mojom.LiteralValue{}
 	}
 
@@ -1083,10 +1058,7 @@ func (p *Parser) parseNumberLiteral() mojom.LiteralValue {
 		return mojom.MakeDoubleLiteralValue(value)
 
 	default:
-		message := fmt.Sprintf("Unexpected token %s at %s. "+
-			"Expecting a number",
-			nextToken, nextToken.LongLocationString())
-		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+		p.unexpectedTokenError(nextToken, "a number")
 		return mojom.LiteralValue{}
 	}
 }
@@ -1100,10 +1072,11 @@ func (p *Parser) parseIdentifier() (identifier string, firstToken lexer.Token) {
 	defer p.popNode()
 
 	firstToken = p.peekNextToken("Expecting an identifier.")
+	if !p.OK() {
+		return
+	}
 	if firstToken.Kind != lexer.NAME {
-		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting an identifier.",
-			firstToken.LongLocationString(), firstToken)
-		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+		p.unexpectedTokenError(firstToken, "an identifier")
 		return
 	}
 
@@ -1182,9 +1155,7 @@ func (p *Parser) tryReadBuiltInType() mojom.TypeRef {
 			handleType := p.readText(lexer.NAME)
 			if !p.OK() {
 				token := p.lastSeen
-				message := fmt.Sprintf("Unexpected token at %s: %s. Expecting a type of handle.",
-					token.LongLocationString(), token)
-				p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+				p.unexpectedTokenError(token, "a type of handle")
 				return nil
 			}
 			if p.match(lexer.RANGLE) {
@@ -1329,8 +1300,6 @@ func (p *Parser) readUserValueRef(assigneeType mojom.TypeRef) *mojom.UserValueRe
 	}
 	valueReference := mojom.NewUserValueRef(assigneeType, identifier,
 		p.currentScope, identifierToken)
-	// TODO(rudominer) Special handling for certain built-in value identifiers
-	// including: default, float.INFINITY, etc.
 	p.mojomDescriptor.RegisterUnresolvedValueReference(valueReference)
 	return valueReference
 }
@@ -1366,10 +1335,7 @@ func (p *Parser) readPositiveIntegerLiteral(initialMinus, acceptHex bool,
 		base = 16
 
 	default:
-		message := fmt.Sprintf("Unexpected token at %s: %s. Expecting a "+
-			"positive integer literal.",
-			nextToken.LongLocationString(), nextToken)
-		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+		p.unexpectedTokenError(nextToken, "a positive integer literal")
 		return 0, false
 	}
 
@@ -1457,15 +1423,14 @@ func (p *Parser) match(expectedKind lexer.TokenKind) bool {
 	if !p.OK() {
 		return false
 	}
-	message := fmt.Sprintf("I was expecting to find %s next.", expectedKind)
+	message := fmt.Sprintf("Expecting %s.", expectedKind)
 	nextToken := p.peekNextToken(message)
 	if !p.OK() {
 		return false
 	}
 	if nextToken.Kind != expectedKind {
-		message = fmt.Sprintf("Unexpected token at %s: %s. Expecting %s.",
-			nextToken.LongLocationString(), nextToken, expectedKind)
-		p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+		expected := fmt.Sprintf("%s", expectedKind)
+		p.unexpectedTokenError(nextToken, expected)
 		return false
 	}
 	p.consumeNextToken()
@@ -1603,4 +1568,25 @@ func (p *Parser) duplicateNameMessage(dupeError *mojom.DuplicateNameError,
 			dupeError.ExistingValue().FullyQualifiedName(),
 			dupeError.ExistingValue().Scope())
 	}
+}
+
+// |expected| should be a string of the grammatic form "a semicolon"
+func (p *Parser) unexpectedTokenError(token lexer.Token, expected string) string {
+	return p.expectedTokenError(token, "Unexpected token at %s: %s.", expected)
+}
+
+// |unexpected| should be a string of the grammatical form "Unexpected token at %s: %s."
+// |expected| should be a string of the grammatic form "a semicolon"
+func (p *Parser) expectedTokenError(token lexer.Token, unexpected string, expected string) string {
+	message := fmt.Sprintf(" Expecting %s.", expected)
+	switch token.Kind {
+	case lexer.ERROR_UNKNOWN, lexer.ERROR_ILLEGAL_CHAR,
+		lexer.ERROR_UNTERMINATED_STRING_LITERAL,
+		lexer.ERROR_UNTERMINATED_COMMENT:
+		message = fmt.Sprintf("%s at %s.", token, token.LongLocationString()) + message
+	default:
+		message = fmt.Sprintf(unexpected, token.LongLocationString(), token) + message
+	}
+	p.err = &ParseError{E_UNEXPECTED_TOKEN, message}
+	return message
 }

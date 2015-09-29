@@ -175,7 +175,8 @@ func (MojomStruct) IsAssignmentCompatibleWith(value LiteralValue) bool {
 // This should be invoked some time after all of the fields have been added
 // to the struct.
 func (s *MojomStruct) ComputeFieldOrdinals() {
-	// TODO: Also check that names are unique.
+	// TODO(rudominer) Implement MojomStruct.ComputeFieldOrdinals()
+	// Also check that field names are unique.
 }
 
 func (m MojomStruct) String() string {
@@ -246,7 +247,7 @@ func (f *StructField) ValidateDefaultValue() (ok bool) {
 		// it will be validated after resolution.
 		assignment := VariableAssignment{assignedValue: literalValue,
 			variableName: f.SimpleName(), kind: DEFAULT_STRUCT_FIELD}
-		return f.fieldType.MarkVariableAssignment(assignment)
+		return f.fieldType.MarkTypeCompatible(assignment)
 	}
 	return true
 }
@@ -257,13 +258,6 @@ func (f StructField) String() string {
 		defaultValueString = fmt.Sprintf(" = %s", f.defaultValue)
 	}
 	return fmt.Sprintf("%s %s%s", f.fieldType, f.simpleName, defaultValueString)
-}
-
-// TODO(rudominer) Do something with this.
-type StructVersion struct {
-	versionNumber uint32
-	numFields     uint32
-	numBytes      uint32
 }
 
 /////////////////////////////////////////////////////////////
@@ -418,7 +412,8 @@ func (u *MojomUnion) AddField(fieldType TypeRef, fieldName string,
 // This should be invoked some time after all of the fields have been added
 // to the union.
 func (u *MojomUnion) ComputeFieldTags() {
-	// TODO: Also check that names are unique.
+	// TODO(rudominer) Implement MojomUnion.ComputeFieldTags()
+	// Also check that names are unique.
 }
 
 func (MojomUnion) Kind() UserDefinedTypeKind {
@@ -467,7 +462,10 @@ func (e MojomEnum) IsAssignmentCompatibleWith(value LiteralValue) bool {
 	}
 	t := value.LiteralValueType()
 	if t == INT8 || t == INT16 || t == INT32 || t == INT64 {
-		// TODO(rudominer) We should check that the value is in the range of the enum fields.
+		// TODO(rudominer) Finish MojomEnum.IsAssignmentCompatibleWith()
+		// We should check that the value is in the range of the enum fields.
+		// Do we want to deprecate the ability to assign an integer to an
+		// enum varialbe?
 		return true
 	}
 	return false
@@ -528,12 +526,16 @@ func (ev *EnumValue) Value() interface{} {
 	return *ev
 }
 
-func (enumValue *EnumValue) AsDeclaredConstant() *UserDefinedConstant {
+func (*EnumValue) AsDeclaredConstant() *UserDefinedConstant {
 	return nil
 }
 
 func (enumValue *EnumValue) AsEnumValue() *EnumValue {
 	return enumValue
+}
+
+func (*EnumValue) AsBuiltinValue() *BuiltInValue {
+	return nil
 }
 
 func (ev *EnumValue) String() string {
@@ -550,6 +552,7 @@ type UserDefinedValueKind int
 const (
 	ENUM_VALUE UserDefinedValueKind = iota
 	DECLARED_CONSTANT
+	BUILT_IN_VALUE
 )
 
 func (k UserDefinedValueKind) String() string {
@@ -558,12 +561,15 @@ func (k UserDefinedValueKind) String() string {
 		return "enum value"
 	case DECLARED_CONSTANT:
 		return "declared constant"
+	case BUILT_IN_VALUE:
+		return "built-in value"
 	default:
 		panic(fmt.Sprintf("Unknown UserDefinedValueKind: %d", k))
 	}
 }
 
-// A UserDefinedValue is either a UserDefinedConstant or an EnumValue
+// A UserDefinedValue is a UserDefinedConstant an EnumValue, or a
+// BuiltInValue
 type UserDefinedValue interface {
 	SimpleName() string
 	FullyQualifiedName() string
@@ -572,6 +578,7 @@ type UserDefinedValue interface {
 	ValueKey() string
 	AsDeclaredConstant() *UserDefinedConstant
 	AsEnumValue() *EnumValue
+	AsBuiltinValue() *BuiltInValue
 	RegisterInScope(scope *Scope) *DuplicateNameError
 }
 
@@ -694,7 +701,7 @@ func (c *UserDefinedConstant) ValidateValue() (ok bool) {
 		// assignee type and it will be validated after resolution.
 		assignment := VariableAssignment{assignedValue: literalValue,
 			variableName: c.simpleName, kind: CONSTANT_DECLARATION}
-		return c.declaredType.MarkVariableAssignment(assignment)
+		return c.declaredType.MarkTypeCompatible(assignment)
 	}
 	return true
 }
@@ -704,6 +711,10 @@ func (constant *UserDefinedConstant) AsDeclaredConstant() *UserDefinedConstant {
 }
 
 func (constant *UserDefinedConstant) AsEnumValue() *EnumValue {
+	return nil
+}
+
+func (*UserDefinedConstant) AsBuiltinValue() *BuiltInValue {
 	return nil
 }
 

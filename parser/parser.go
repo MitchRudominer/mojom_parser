@@ -25,8 +25,8 @@ type Parser struct {
 	// The current error state. In the current generation of the Parser we
 	// only handle a single parse error before giving up. If an error
 	// has been encountered then |err| is not nil.
-	// TODO(rudominer) Enhance the Parser to be able to keep going after
-	// some errors and change this field to be a list of errors instead of
+	// TODO(rudominer) Enhancement: Parser should be able to keep going
+	// after some errors. Change this field to be a list of errors instead of
 	// a single error.
 	err *ParseError
 
@@ -165,7 +165,7 @@ const (
 	E_INTEGER_OUT_OF_RANGE
 
 	// An integer literal value was ill-formed.
-	// TODO(rudominer) This is only necessary because the lexer allows some
+	// TODO(azani) This is only necessary because the lexer allows some
 	// illegal tokens such as "0x"
 	E_INTEGER_PARSE_ERROR
 
