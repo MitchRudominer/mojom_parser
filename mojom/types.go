@@ -2,7 +2,7 @@ package mojom
 
 import (
 	"fmt"
-	"github.com/rudominer/mojom_parser/lexer"
+	"mojo/public/tools/bindings/mojom_parser/lexer"
 )
 
 // This file data structures and functions used to describe Mojom types,

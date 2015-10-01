@@ -1,7 +1,8 @@
 package mojom
 
 import (
-	"fmt"
+	"mojo/public/go/bindings"
+	"mojo/public/tools/bindings/mojom_parser/generated/mojom_files"
 )
 
 //////////////////////////////////////////////////
@@ -10,7 +11,18 @@ import (
 
 // Serializes the MojomDescriptor into a binary form that is passed to the
 // backend of the compiler in order to invoke the code generators.
-func (d *MojomDescriptor) Serialize() []byte {
-	// TODO(rudominer) Implement MojomDescriptor serialization.
-	return []byte(fmt.Sprintf("%s", d))
+// To do this we use Mojo serialization.
+func (d *MojomDescriptor) Serialize() (bytes []byte, err error) {
+	fileGraph := translateDescriptor(d)
+	encoder := bindings.NewEncoder()
+	fileGraph.Encode(encoder)
+	bytes, _, err = encoder.Data()
+	return
+}
+
+func translateDescriptor(d *MojomDescriptor) *mojom_files.MojomFileGraph {
+	fileGraph := mojom_files.MojomFileGraph{}
+	fileGraph.Files = make(map[string]mojom_files.MojomFile)
+	fileGraph.Files["test"] = mojom_files.MojomFile{}
+	return &fileGraph
 }

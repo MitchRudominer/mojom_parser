@@ -2,8 +2,8 @@ package parser
 
 import (
 	"fmt"
-	"github.com/rudominer/mojom_parser/lexer"
-	"github.com/rudominer/mojom_parser/mojom"
+	"mojo/public/tools/bindings/mojom_parser/lexer"
+	"mojo/public/tools/bindings/mojom_parser/mojom"
 	"strings"
 )
 
