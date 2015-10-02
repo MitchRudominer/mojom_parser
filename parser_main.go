@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"mojo/public/tools/bindings/mojom_parser/parser"
+	"mojom/mojom_parser/parser"
 	"os"
 	"strings"
 )

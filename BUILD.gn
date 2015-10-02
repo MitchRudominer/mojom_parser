@@ -1,0 +1,33 @@
+# Copyright 2015 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//mojo/go/rules.gni")
+
+go_binary("mojom_parser") {
+  sources = [
+    "parser_main.go",
+  ]
+  inputs = [
+    "generated/mojom_files/mojom_files.mojom.go",
+    "generated/mojom_types/mojom_types.mojom.go",
+    "lexer/lexer.go",
+    "lexer/token_stream.go",
+    "lexer/tokens.go",
+    "mojom/computed_data.go",
+    "mojom/mojom_descriptor.go",
+    "mojom/resolution.go",
+    "mojom/scopes.go",
+    "mojom/scopes.go",
+    "mojom/serialization.go",
+    "mojom/types.go",
+    "mojom/user_defined_types.go",
+    "parser/parse_driver.go",
+    "parser/parser.go",
+    "parser/parsing.go",
+  ]
+  deps = [
+    #"//mojo/go:platform_cgo",
+    "//mojo/public/platform/native:system",
+  ]
+}

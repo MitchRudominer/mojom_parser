@@ -3,7 +3,7 @@ package parser
 import (
 	"fmt"
 	"io/ioutil"
-	"mojo/public/tools/bindings/mojom_parser/mojom"
+	"mojom/mojom_parser/mojom"
 	"os"
 	"path/filepath"
 )
@@ -134,10 +134,10 @@ type FileReference struct {
 
 func (f FileReference) String() string {
 	if f.importedFrom != nil {
-		return fmt.Sprintf("file %s imported from file %s.",
+		return fmt.Sprintf("%s imported from file %s.",
 			f.specifiedPath, f.importedFrom.specifiedPath)
 	} else {
-		return fmt.Sprintf("file %s", f.absolutePath)
+		return fmt.Sprintf("%s", f.specifiedPath)
 	}
 }
 

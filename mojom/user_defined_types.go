@@ -622,9 +622,11 @@ func (v *UserDefinedValueBase) RegisterInScope(scope *Scope) *DuplicateNameError
 		// and once within its enum's scope directly. In this way the enum
 		// value may be reference either with or without the name of the
 		// enum as a prefix.
-		if err := scope.Parent().RegisterValue(v.thisValue); err != nil {
-			return err
-		}
+		// NOTE(rudominer) This behavior was changed in light of
+		// https://codereview.chromium.org/1375313006
+		//if err := scope.Parent().RegisterValue(v.thisValue); err != nil {
+		//	return err
+		//}
 	}
 
 	v.fullyQualifiedName = buildDottedName(scope.fullyQualifiedName, v.simpleName)

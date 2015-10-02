@@ -2,7 +2,7 @@ package mojom
 
 import (
 	"mojo/public/go/bindings"
-	"mojo/public/tools/bindings/mojom_parser/generated/mojom_files"
+	"mojom/mojom_parser/generated/mojom_files"
 )
 
 //////////////////////////////////////////////////

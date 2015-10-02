@@ -2,8 +2,8 @@ package parser
 
 import (
 	"fmt"
-	"mojo/public/tools/bindings/mojom_parser/lexer"
-	"mojo/public/tools/bindings/mojom_parser/mojom"
+	"mojom/mojom_parser/lexer"
+	"mojom/mojom_parser/mojom"
 	"strconv"
 )
 
